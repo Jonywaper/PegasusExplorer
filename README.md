@@ -1,2 +1,90 @@
-# SimpleExplorerOldMac
-Windows-style file explorer for macOS, built for older Macs (Intel, macOS 13 Ventura). Tabs, folder tree, dual pane and network drives. Free and open source (AGPL-3.0). Based on OpenXplorer.
+# PegasusExplorer
+
+Windows-style file explorer for macOS, built for older Macs (Intel, macOS 13 Ventura). Tabs, folder tree, Windows ribbon and network drives. Free and open source (AGPL-3.0). Inspired by [OpenXplorer](https://github.com/AKolenda/openxplorer).
+
+Explorador de archivos estilo Windows para macOS, pensado para Macs con macOS 13 Ventura (Intel y Apple silicon). Nativo en Swift, sin dependencias.
+
+## Funciones (versión 0.2)
+
+- **Cinta de opciones** como la de Windows 10, con las pestañas Archivo, Inicio, Compartir y Vista:
+  - **Inicio:** anclar al Acceso rápido; copiar, cortar y pegar; copiar ruta de acceso; pegar acceso directo; mover a, copiar a, eliminar, cambiar nombre; nueva carpeta, nuevo elemento; propiedades, abrir con; seleccionar todo, ninguno, invertir.
+  - **Compartir:** compartir, correo electrónico, comprimir en ZIP, AirDrop y etiquetas de color.
+  - **Vista:** panel de navegación y de vista previa; iconos grandes, iconos medianos, mosaicos y detalles; ordenar; extensiones de archivo; elementos ocultos.
+- **Menú de clic derecho** como el de Windows:
+  - Abrir, abrir con, abrir en pestaña o ventana nueva y anclar al Acceso rápido.
+  - Compartir, enviar a, cortar, copiar, crear acceso directo, eliminar, cambiar nombre y propiedades.
+  - Extraer todo (en archivos ZIP).
+- **Este equipo**, como en Windows: carpetas, discos con barra de espacio libre y ubicaciones de red. «Disco local» abre la raíz real del disco.
+- **Pestañas** y **varias ventanas**.
+- **Barra de direcciones** al estilo «Este equipo › Disco local › …». Haz clic en el espacio vacío (o `Ctrl+L`) para escribir una ruta, `\\servidor\carpeta` o `smb://servidor/carpeta`.
+- **Botones de navegación:** Atrás (carpeta anterior), Adelante, ubicaciones recientes y Subir (carpeta superior).
+- **Carpetas amarillas** como en Windows.
+- **Unidades de red:** SMB, AFP, NFS, FTP y WebDAV. macOS pide el usuario y la contraseña y los guarda en el llavero.
+- **Funciones de Finder que Windows no tiene:**
+  - Vista rápida (barra espaciadora) y panel de vista previa.
+  - Etiquetas de color.
+  - Duplicar (`Cmd+D`) y Nueva carpeta con la selección.
+  - Mostrar contenido del paquete.
+  - AirDrop y Compartir.
+  - Abrir en Terminal y Mostrar en Finder.
+- **Explorador predeterminado** (menú Archivo): hace que las carpetas que abren otras apps se abran en PegasusExplorer. macOS no permite reemplazar el Finder por completo (el Escritorio y «Mostrar en Finder» siguen usándolo).
+- **Copiar y pegar compatible con Finder.** Las copias se llaman «nombre - copia», como en Windows.
+
+## Atajos de teclado
+
+Funcionan con `Ctrl` (como en Windows) y con `Cmd` (como en Mac). `Alt` es la tecla `Option`.
+
+| Atajo | Acción |
+|---|---|
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copiar, cortar, pegar |
+| `Ctrl+A` | Seleccionar todo |
+| `Espacio` | Vista rápida |
+| `Alt+Enter` / `Cmd+I` | Propiedades |
+| `Alt+P` | Panel de vista previa |
+| `Mayús+Supr` | Eliminar permanentemente |
+| `Ctrl+N` | Ventana nueva |
+| `F2` | Cambiar nombre |
+| `Supr` (fn+Delete) o `Cmd+Delete` | Enviar a la Papelera |
+| `Enter` | Abrir |
+| `Delete` (retroceso) / `Alt+Izquierda` | Atrás |
+| `Alt+Derecha` | Adelante |
+| `Alt+Arriba` | Carpeta superior |
+| `F5` / `Ctrl+R` | Actualizar |
+| `Ctrl+L` / `Alt+D` / `F4` | Escribir en la barra de direcciones |
+| `Ctrl+F` / `F3` | Buscar en la carpeta |
+| `Ctrl+Shift+N` | Nueva carpeta |
+| `Ctrl+Shift+C` | Copiar ruta de acceso |
+| `Ctrl+H` | Mostrar u ocultar elementos ocultos |
+| `Ctrl+K` | Conectar a unidad de red |
+| `Ctrl+T` / `Ctrl+W` | Nueva pestaña, cerrar pestaña |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Pestaña siguiente, anterior |
+| `Ctrl+1` … `Ctrl+9` | Ir a la pestaña |
+
+## Compilar
+
+Solo necesitas las Command Line Tools de Apple (`xcode-select --install`). No hace falta Xcode ni Homebrew.
+
+```bash
+./build.sh
+open build/PegasusExplorer.app
+```
+
+`./build.sh --universal` genera una app para Intel y Apple silicon.
+
+Para dejarla en Aplicaciones:
+
+```bash
+cp -R build/PegasusExplorer.app /Applications/
+```
+
+La primera vez que abras Escritorio, Documentos, Descargas o un disco externo, macOS te pedirá permiso. Hasta que lo permitas, esas carpetas se ven vacías.
+
+## Pendiente
+
+Doble panel, arrastrar y soltar, deshacer y cambiar nombre directamente en la lista.
+
+## Licencia
+
+[AGPL-3.0](LICENSE). Proyecto independiente, inspirado en el diseño y las funciones de [OpenXplorer](https://github.com/AKolenda/openxplorer) (AGPL-3.0).
+
+No está afiliado a Microsoft ni a Apple. Windows y macOS son marcas de sus respectivos dueños.
