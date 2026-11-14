@@ -24,16 +24,10 @@ struct ContentView: View {
                     SidebarView(state: state, tab: tab)
                         .frame(minWidth: 150, idealWidth: 210, maxWidth: 420)
                 }
-                Group {
-                    if tab.isThisPC {
-                        ThisPCView(state: state)
-                    } else {
-                        FileListView(state: state, tab: tab)
-                    }
-                }
-                .frame(minWidth: 360)
+                MainContent(state: state, tab: tab)
+                    .frame(minWidth: 360)
                 if prefs.showPreviewPane {
-                    PreviewPane(url: previewURL(tab))
+                    PreviewArea(state: state, tab: tab)
                         .frame(minWidth: 200, idealWidth: 300, maxWidth: 600)
                 }
             }
@@ -94,10 +88,31 @@ struct ContentView: View {
             : "¿Seguro que quieres eliminar permanentemente estos \(urls.count) elementos?"
     }
 
-    private func previewURL(_ tab: ExplorerTab) -> URL? {
+}
+
+/// Contenido de la pestaña. Observa la pestaña para cambiar entre «Este equipo» y una carpeta
+/// en cuanto se navega (si no, la ventana se quedaba mostrando la página anterior).
+struct MainContent: View {
+    let state: AppState
+    @ObservedObject var tab: ExplorerTab
+
+    var body: some View {
+        if tab.isThisPC {
+            ThisPCView(state: state)
+        } else {
+            FileListView(state: state, tab: tab)
+        }
+    }
+}
+
+/// Panel de vista previa del archivo seleccionado.
+struct PreviewArea: View {
+    let state: AppState
+    @ObservedObject var tab: ExplorerTab
+
+    var body: some View {
         let selected = state.selectedURLs
-        guard selected.count == 1, !AppState.isFolder(selected[0]) else { return nil }
-        return selected[0]
+        PreviewPane(url: selected.count == 1 && !AppState.isFolder(selected[0]) ? selected[0] : nil)
     }
 }
 

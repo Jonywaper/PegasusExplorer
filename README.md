@@ -1,8 +1,31 @@
-# PegasusExplorer
+<p align="center">
+  <img src="docs/icon.png" width="160" alt="Ícono de PegasusExplorer: el perfil de un Pegaso sonriente en dos tonos de azul, con un ala blanca">
+</p>
 
-Windows-style file explorer for macOS, built for older Macs (Intel, macOS 13 Ventura). Tabs, folder tree, Windows ribbon and network drives. Free and open source (AGPL-3.0). Inspired by [OpenXplorer](https://github.com/AKolenda/openxplorer).
+<h1 align="center">PegasusExplorer</h1>
 
-Explorador de archivos estilo Windows para macOS, pensado para Macs con macOS 13 Ventura (Intel y Apple silicon). Nativo en Swift, sin dependencias.
+<p align="center">
+  <b>El Explorador de archivos de Windows, en tu Mac.</b><br>
+  Para macOS 13 Ventura o posterior · Intel y Apple silicon · Gratis y de código abierto
+</p>
+
+<p align="center">
+  <a href="https://github.com/Jonywaper/PegasusExplorer/releases/latest"><b>Descargar</b></a>
+</p>
+
+Windows-style file explorer for macOS 13 Ventura and later (Sonoma, Sequoia, Tahoe), on Intel and Apple silicon Macs. Tabs, folder tree, Windows ribbon, Google Drive and network drives. Free and open source (AGPL-3.0). Inspired by [OpenXplorer](https://github.com/AKolenda/openxplorer).
+
+Explorador de archivos estilo Windows para macOS, nativo en Swift y sin dependencias. Pensado sobre todo para quienes vienen de Windows y para Macs que se quedaron en macOS 13 Ventura, aunque funciona igual en versiones más nuevas.
+
+## Compatibilidad
+
+| | |
+|---|---|
+| **macOS** | 13 Ventura, 14 Sonoma, 15 Sequoia y 26 Tahoe |
+| **Procesador** | Intel y Apple silicon (M1, M2, M3, M4…) |
+| **Probado en** | macOS 13.7 Ventura en una Mac Intel |
+
+No funciona en macOS 12 Monterey ni anteriores: usa funciones de macOS 13.
 
 ## Funciones (versión 0.9 beta)
 

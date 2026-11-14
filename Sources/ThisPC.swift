@@ -111,16 +111,15 @@ struct ThisPCView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(volume.name).lineLimit(1)
                 if volume.totalBytes != nil {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Rectangle().fill(Color.primary.opacity(0.12))
-                            Rectangle()
-                                .fill(volume.usedFraction > 0.9 ? Color.red : Color(red: 0.15, green: 0.55, blue: 0.95))
-                                .frame(width: geo.size.width * volume.usedFraction)
-                        }
-                        .overlay(Rectangle().stroke(Color.primary.opacity(0.2)))
+                    // Barra de espacio usado; en rojo cuando pasa del 90 %, como en Windows.
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.primary.opacity(0.12))
+                        Rectangle()
+                            .fill(volume.usedFraction > 0.9 ? Color.red : Color(red: 0.15, green: 0.55, blue: 0.95))
+                            .frame(width: 190 * volume.usedFraction)
                     }
                     .frame(width: 190, height: 12)
+                    .overlay(Rectangle().stroke(Color.primary.opacity(0.2)))
                     Text("\(Format.bytes(volume.freeBytes ?? 0)) disponibles de \(Format.bytes(volume.totalBytes ?? 0))")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -173,8 +172,13 @@ struct ThisPCView: View {
             .overlay(RoundedRectangle(cornerRadius: 3)
                 .stroke(selected == id ? Color.accentColor.opacity(0.5) : Color.clear))
             .contentShape(Rectangle())
-            .onTapGesture {
-                if NSApp.currentEvent?.clickCount ?? 1 >= 2 { open() } else { selected = id }
+            .onTapGesture(count: 2) {
+                debugLog("doble clic en mosaico \(id.absoluteString)")
+                open()
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                debugLog("clic en mosaico \(id.absoluteString)")
+                selected = id
+            })
     }
 }

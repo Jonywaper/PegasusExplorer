@@ -194,7 +194,9 @@ struct Volume: Identifiable, Hashable {
             let isRoot = url.path == "/"
             let baseName = v.volumeLocalizedName ?? url.lastPathComponent
             let isNetwork = !(v.volumeIsLocal ?? true)
-            let free = v.volumeAvailableCapacityForImportantUsage ?? v.volumeAvailableCapacity.map { Int64($0) }
+            // «Important usage» solo vale para discos locales: en unidades de red macOS devuelve 0.
+            let important = isNetwork ? nil : v.volumeAvailableCapacityForImportantUsage.flatMap { $0 > 0 ? $0 : nil }
+            let free = important ?? v.volumeAvailableCapacity.map { Int64($0) }
             return Volume(
                 url: url,
                 name: isRoot ? "Disco local (\(baseName))" : baseName,

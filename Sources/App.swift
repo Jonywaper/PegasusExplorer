@@ -63,6 +63,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             KeyboardShortcuts.handle(event) ? nil : event
         }
+        // Diagnóstico: PEGASUS_DEBUGLOG=/ruta/archivo.log anota cada clic.
+        if ProcessInfo.processInfo.environment["PEGASUS_DEBUGLOG"] != nil {
+            _ = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+                if let view = event.window?.contentView {
+                    let p = view.convert(event.locationInWindow, from: nil)
+                    debugLog("\(event.type == .leftMouseDown ? "down" : "up  ") x=\(Int(p.x)) y=\(Int(view.bounds.height - p.y)) clics=\(event.clickCount)")
+                }
+                return event
+            }
+        }
         runSnapshotIfRequested()
     }
 
@@ -86,7 +96,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Para desarrollo: SE_SNAPSHOT=/ruta/captura.png guarda una imagen de la ventana y cierra la app.
     private func runSnapshotIfRequested() {
         let env = ProcessInfo.processInfo.environment
-        guard let path = env["SE_SNAPSHOT"] else { return }
+        guard let path = env["SE_SNAPSHOT"] else {
+            // SE_START sin captura: solo abre esa ubicación (para pruebas).
+            if let start = env["SE_START"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    AppState.active?.currentTab.navigate(to: start == "thispc" ? Locations.thisPC : URL(fileURLWithPath: start))
+                }
+            }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             guard let state = AppState.active else { return }
             if let start = env["SE_START"] {
@@ -96,7 +114,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let ribbon = env["SE_RIBBON"] { UserDefaults.standard.set(ribbon, forKey: "ribbonTab") }
             if env["SE_ABOUT"] != nil { AboutWindow.show() }
         }
+        // SE_CLICK="x,y": doble clic en ese punto de la ventana (coordenadas de la captura).
+        if let click = env["SE_CLICK"]?.split(separator: ",").compactMap({ Double($0) }), click.count == 2 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                guard let window = AppState.active?.window, let content = window.contentView else { return }
+                let point = NSPoint(x: click[0], y: content.bounds.height - click[1])
+                for count in 1...2 {
+                    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                        if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                                          windowNumber: window.windowNumber, context: nil,
+                                                          eventNumber: 0, clickCount: count, pressure: 1) {
+                            NSApp.postEvent(event, atStart: false)
+                        }
+                    }
+                }
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            if env["SE_CLICK"] != nil { print("ubicación:", AppState.active?.currentTab.url.absoluteString ?? "-") }
             let window = env["SE_ABOUT"] != nil
                 ? NSApp.windows.first { $0.title.hasPrefix("Acerca de") }
                 : AppState.active?.window
@@ -231,5 +267,20 @@ enum KeyboardShortcuts {
             }
         }
         return false
+    }
+}
+
+/// Escribe una línea en el archivo de diagnóstico (solo si PEGASUS_DEBUGLOG está definido).
+func debugLog(_ message: String) {
+    guard let path = ProcessInfo.processInfo.environment["PEGASUS_DEBUGLOG"] else { return }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    let line = "\(formatter.string(from: Date())) \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 }

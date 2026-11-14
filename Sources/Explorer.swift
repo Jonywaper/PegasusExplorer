@@ -82,6 +82,7 @@ final class ExplorerTab: ObservableObject, Identifiable {
 
     func navigate(to newURL: URL) {
         let target = Locations.isThisPC(newURL) ? newURL : newURL.standardizedFileURL
+        debugLog("navegar a \(target.absoluteString)")
         guard target != url else { reload(); return }
         backStack.append(url)
         forwardStack.removeAll()
