@@ -25,7 +25,9 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            WindowsFolderIcon(size: 84)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
             VStack(spacing: 4) {
                 Text("PegasusExplorer").font(.title2).fontWeight(.semibold)
                 Text("Versión \(version)").foregroundColor(.secondary)

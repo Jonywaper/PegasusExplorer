@@ -100,6 +100,11 @@ struct SidebarView: View {
                         FolderTreeRow(node: model.node(folder.url, name: folder.title),
                                       model: model, state: state, tab: tab, depth: 1)
                     }
+                    ForEach(prefs.cloudDrives) { drive in
+                        FolderTreeRow(node: model.node(drive.url, name: drive.name),
+                                      model: model, state: state, tab: tab, depth: 1,
+                                      customIcon: AnyView(CloudIcon(drive: drive)))
+                    }
                     ForEach(prefs.localVolumes) { volume in
                         FolderTreeRow(node: model.node(volume.url, name: volume.name),
                                       model: model, state: state, tab: tab, depth: 1,

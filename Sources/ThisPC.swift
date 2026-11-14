@@ -26,9 +26,10 @@ struct ThisPCView: View {
                     }
                 }
 
-                group(title: "Dispositivos y unidades (\(prefs.localVolumes.count))", expanded: $drivesExpanded) {
+                group(title: "Dispositivos y unidades (\(prefs.localVolumes.count + prefs.cloudDrives.count))", expanded: $drivesExpanded) {
                     LazyVGrid(columns: driveColumns, alignment: .leading, spacing: 6) {
                         ForEach(prefs.localVolumes) { volume in driveTile(volume) }
+                        ForEach(prefs.cloudDrives) { drive in cloudTile(drive) }
                     }
                 }
 
@@ -137,6 +138,28 @@ struct ThisPCView: View {
             }
             Divider()
             Button("Propiedades") { state.showProperties([volume.url]) }
+        }
+    }
+
+    private func cloudTile(_ drive: CloudDrive) -> some View {
+        tile(id: drive.url, open: { state.currentTab.navigate(to: drive.url) }) {
+            CloudIcon(drive: drive, size: 48)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(drive.name).lineLimit(1)
+                Text(drive.provider == "iCloud" ? "Almacenamiento en iCloud" : "Unidad en la nube")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .contextMenu {
+            Button("Abrir") { state.currentTab.navigate(to: drive.url) }
+            Button("Abrir en una pestaña nueva") { state.newTab(at: drive.url) }
+            Button("Abrir en ventana nueva") { state.newWindow(at: drive.url) }
+            Divider()
+            Button(prefs.isPinned(drive.url) ? "Desanclar del Acceso rápido" : "Anclar al Acceso rápido") { prefs.togglePin(drive.url) }
+            Button("Copiar ruta de acceso") { state.copyPath([drive.url]) }
+            Divider()
+            Button("Propiedades") { state.showProperties([drive.url]) }
         }
     }
 

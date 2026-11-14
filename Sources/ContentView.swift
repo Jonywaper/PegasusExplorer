@@ -364,10 +364,13 @@ struct AddressBar: View {
         var result: [(String, URL)] = []
         if !tab.isThisPC {
             var current = tab.url.standardizedFileURL
+            let cloud = CloudDrive.containing(current, in: prefs.cloudDrives)
             let volume = Volume.containing(current, in: prefs.volumes)
             while true {
                 let title: String
-                if let volume, current.path == volume.url.path {
+                if let cloud, current.path == cloud.url.path {
+                    title = cloud.name
+                } else if let volume, current.path == volume.url.path {
                     title = volume.name
                 } else if let known = KnownFolder.matching(current) {
                     title = known.title
@@ -375,7 +378,8 @@ struct AddressBar: View {
                     title = FileManager.default.displayName(atPath: current.path)
                 }
                 result.insert((title, current), at: 0)
-                if current.path == "/" || (volume != nil && current.path == volume!.url.path) { break }
+                if current.path == "/" || (volume != nil && current.path == volume!.url.path)
+                    || (cloud != nil && current.path == cloud!.url.path) { break }
                 current = current.deletingLastPathComponent()
             }
         }
@@ -417,7 +421,7 @@ struct StatusBar: View {
         let selectedBytes = selected.compactMap(\.size).reduce(0, +)
         HStack(spacing: 12) {
             if tab.isThisPC {
-                Text("\(KnownFolder.allCases.count + 1 + prefs.volumes.count) elementos")
+                Text("\(KnownFolder.allCases.count + 1 + prefs.volumes.count + prefs.cloudDrives.count) elementos")
             } else {
                 Text(items.count == 1 ? "1 elemento" : "\(items.count) elementos")
             }

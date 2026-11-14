@@ -21,6 +21,7 @@ final class Preferences: ObservableObject {
         }
     }
     @Published private(set) var volumes: [Volume] = []
+    @Published private(set) var cloudDrives: [CloudDrive] = []
 
     private var observers: [NSObjectProtocol] = []
 
@@ -59,6 +60,7 @@ final class Preferences: ObservableObject {
 
     func refreshVolumes() {
         volumes = Volume.mounted()
+        cloudDrives = CloudDrive.detect()
     }
 
     var localVolumes: [Volume] { volumes.filter { !$0.isNetwork } }

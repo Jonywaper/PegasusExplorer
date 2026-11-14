@@ -4,7 +4,7 @@ Windows-style file explorer for macOS, built for older Macs (Intel, macOS 13 Ven
 
 Explorador de archivos estilo Windows para macOS, pensado para Macs con macOS 13 Ventura (Intel y Apple silicon). Nativo en Swift, sin dependencias.
 
-## Funciones (versión 0.2)
+## Funciones (versión 0.9 beta)
 
 - **Cinta de opciones** como la de Windows 10, con las pestañas Archivo, Inicio, Compartir y Vista:
   - **Inicio:** anclar al Acceso rápido; copiar, cortar y pegar; copiar ruta de acceso; pegar acceso directo; mover a, copiar a, eliminar, cambiar nombre; nueva carpeta, nuevo elemento; propiedades, abrir con; seleccionar todo, ninguno, invertir.
@@ -19,6 +19,7 @@ Explorador de archivos estilo Windows para macOS, pensado para Macs con macOS 13
 - **Barra de direcciones** al estilo «Este equipo › Disco local › …». Haz clic en el espacio vacío (o `Ctrl+L`) para escribir una ruta, `\\servidor\carpeta` o `smb://servidor/carpeta`.
 - **Botones de navegación:** Atrás (carpeta anterior), Adelante, ubicaciones recientes y Subir (carpeta superior).
 - **Carpetas amarillas** como en Windows.
+- **Google Drive, OneDrive, Dropbox e iCloud Drive** en Este equipo y en el panel de navegación. Si tienes varias cuentas, cada una aparece con su correo, como en Windows.
 - **Unidades de red:** SMB, AFP, NFS, FTP y WebDAV. macOS pide el usuario y la contraseña y los guarda en el llavero.
 - **Funciones de Finder que Windows no tiene:**
   - Vista rápida (barra espaciadora) y panel de vista previa.
@@ -29,6 +30,18 @@ Explorador de archivos estilo Windows para macOS, pensado para Macs con macOS 13
   - Abrir en Terminal y Mostrar en Finder.
 - **Explorador predeterminado** (menú Archivo): hace que las carpetas que abren otras apps se abran en PegasusExplorer. macOS no permite reemplazar el Finder por completo (el Escritorio y «Mostrar en Finder» siguen usándolo).
 - **Copiar y pegar compatible con Finder.** Las copias se llaman «nombre - copia», como en Windows.
+
+## Instalar
+
+1. Descarga `PegasusExplorer-<versión>.dmg` desde [Releases](https://github.com/Jonywaper/PegasusExplorer/releases/latest).
+2. Ábrelo y arrastra **PegasusExplorer** a **Aplicaciones**.
+3. Ábrelo desde Aplicaciones.
+
+Funciona en Macs Intel y Apple silicon con macOS 13 Ventura o posterior.
+
+**La primera vez macOS lo va a bloquear.** La app es gratuita y no está notarizada por Apple, porque eso requiere una cuenta de desarrollador de pago. Para abrirla, ve a **Configuración del Sistema → Privacidad y seguridad**, baja hasta el aviso de PegasusExplorer y haz clic en **Abrir de todos modos**. Solo hay que hacerlo una vez.
+
+Si prefieres no hacerlo, compílala tú mismo (instrucciones abajo). Una app compilada en tu propia Mac no se bloquea.
 
 ## Atajos de teclado
 
@@ -69,7 +82,9 @@ Solo necesitas las Command Line Tools de Apple (`xcode-select --install`). No ha
 open build/PegasusExplorer.app
 ```
 
-`./build.sh --universal` genera una app para Intel y Apple silicon.
+`./build.sh --universal` genera una app para Intel y Apple silicon, y `Tools/make-dmg.sh` crea el instalador DMG.
+
+El ícono se dibuja con código en `Tools/MakeIcon.swift`.
 
 Para dejarla en Aplicaciones:
 

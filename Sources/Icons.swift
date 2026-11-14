@@ -89,3 +89,51 @@ struct DriveIcon: View {
             .frame(width: size, height: size)
     }
 }
+
+/// Ícono de una unidad en la nube: el que pone la app (Google Drive, OneDrive...) o una nube.
+struct CloudIcon: View {
+    let drive: CloudDrive
+    var size: CGFloat = 16
+
+    var body: some View {
+        if drive.provider == "GoogleDrive" {
+            GoogleDriveIcon(size: size)
+        } else {
+            Image(systemName: drive.symbol)
+                .resizable()
+                .scaledToFit()
+                .foregroundColor(drive.provider == "OneDrive" ? Color(red: 0.0, green: 0.47, blue: 0.84) : .blue)
+                .frame(width: size, height: size * 0.75)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
+/// Triángulo de tres colores, al estilo del logo de Google Drive (dibujo propio).
+struct GoogleDriveIcon: View {
+    var size: CGFloat = 16
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = sz.width, h = sz.height
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * w, y: y * h) }
+            var left = Path()
+            left.addLines([p(0.36, 0.12), p(0.64, 0.12), p(0.30, 0.70), p(0.16, 0.46)])
+            left.closeSubpath()
+            ctx.fill(left, with: .color(Color(red: 0.06, green: 0.62, blue: 0.35)))
+            var right = Path()
+            right.addLines([p(0.64, 0.12), p(0.98, 0.70), p(0.70, 0.70), p(0.50, 0.36)])
+            right.closeSubpath()
+            ctx.fill(right, with: .color(Color(red: 0.98, green: 0.74, blue: 0.02)))
+            var bottom = Path()
+            bottom.addLines([p(0.30, 0.70), p(0.98, 0.70), p(0.84, 0.92), p(0.16, 0.92)])
+            bottom.closeSubpath()
+            ctx.fill(bottom, with: .color(Color(red: 0.26, green: 0.52, blue: 0.96)))
+            var tail = Path()
+            tail.addLines([p(0.16, 0.46), p(0.30, 0.70), p(0.16, 0.92), p(0.02, 0.70)])
+            tail.closeSubpath()
+            ctx.fill(tail, with: .color(Color(red: 0.0, green: 0.4, blue: 0.85)))
+        }
+        .frame(width: size, height: size)
+    }
+}

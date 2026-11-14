@@ -238,3 +238,56 @@ enum FinderTags {
         all.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.color
     }
 }
+
+/// Unidades en la nube (Google Drive, OneDrive, Dropbox, Box, iCloud Drive).
+/// En Mac, cada cuenta aparece como una carpeta en ~/Library/CloudStorage.
+struct CloudDrive: Identifiable, Hashable {
+    let url: URL
+    let name: String
+    let provider: String
+
+    var id: URL { url }
+
+    static func detect() -> [CloudDrive] {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let storage = home.appendingPathComponent("Library/CloudStorage")
+        var drives: [CloudDrive] = []
+
+        let entries = (try? fm.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil,
+                                                   options: [.skipsHiddenFiles])) ?? []
+        for url in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let folder = url.lastPathComponent
+            let (provider, account) = split(folder)
+            let name: String
+            switch provider {
+            case "GoogleDrive": name = account.isEmpty ? "Google Drive" : "Google Drive (\(account))"
+            case "OneDrive": name = account.isEmpty ? "OneDrive" : "OneDrive - \(account)"
+            case "Dropbox": name = account.isEmpty ? "Dropbox" : "Dropbox (\(account))"
+            case "Box": name = account.isEmpty ? "Box" : "Box (\(account))"
+            default: name = folder.replacingOccurrences(of: "-", with: " - ")
+            }
+            drives.append(CloudDrive(url: url.standardizedFileURL, name: name, provider: provider))
+        }
+
+        let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        if fm.fileExists(atPath: icloud.path) {
+            drives.append(CloudDrive(url: icloud.standardizedFileURL, name: "iCloud Drive", provider: "iCloud"))
+        }
+        return drives
+    }
+
+    /// «GoogleDrive-correo@gmail.com» → ("GoogleDrive", "correo@gmail.com").
+    private static func split(_ folder: String) -> (String, String) {
+        guard let dash = folder.firstIndex(of: "-") else { return (folder, "") }
+        return (String(folder[..<dash]), String(folder[folder.index(after: dash)...]))
+    }
+
+    var symbol: String { provider == "iCloud" ? "icloud.fill" : "cloud.fill" }
+
+    /// La unidad en la nube que contiene una ruta.
+    static func containing(_ url: URL, in drives: [CloudDrive]) -> CloudDrive? {
+        let path = url.standardizedFileURL.path
+        return drives.first { path == $0.url.path || path.hasPrefix($0.url.path + "/") }
+    }
+}

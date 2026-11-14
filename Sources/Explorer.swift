@@ -59,6 +59,7 @@ final class ExplorerTab: ObservableObject, Identifiable {
         if isThisPC { return "Este equipo" }
         if url.path == "/" { return Volume.mounted().first(where: \.isRoot)?.name ?? "Disco local" }
         if let known = KnownFolder.matching(url) { return known.title }
+        if let cloud = Preferences.shared.cloudDrives.first(where: { $0.url == url.standardizedFileURL }) { return cloud.name }
         return FileManager.default.displayName(atPath: url.path)
     }
 
@@ -115,7 +116,8 @@ final class ExplorerTab: ObservableObject, Identifiable {
         guard canGoUp else { return }
         let child = url
         let isVolumeRoot = (try? url.resourceValues(forKeys: [.isVolumeKey]).isVolume) ?? false
-        if url.path == "/" || isVolumeRoot {
+        let isCloudRoot = Preferences.shared.cloudDrives.contains { $0.url == url.standardizedFileURL }
+        if url.path == "/" || isVolumeRoot || isCloudRoot {
             navigate(to: Locations.thisPC)
         } else {
             navigate(to: url.deletingLastPathComponent())

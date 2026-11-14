@@ -30,6 +30,17 @@ done
 
 lipo -create "${BINS[@]}" -output "$APP/Contents/MacOS/$APP_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+
+# Ícono: se vuelve a dibujar solo si cambió Tools/MakeIcon.swift.
+ICNS="Resources/AppIcon.icns"
+if [[ ! -f "$ICNS" || "Tools/MakeIcon.swift" -nt "$ICNS" ]]; then
+  echo "Dibujando el ícono..."
+  ICONSET="$BUILD_DIR/AppIcon.iconset"
+  rm -rf "$ICONSET"
+  swift Tools/MakeIcon.swift "$ICONSET" >/dev/null
+  iconutil -c icns "$ICONSET" -o "$ICNS"
+fi
+cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 echo "Listo: $APP"
