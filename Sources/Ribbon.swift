@@ -62,7 +62,8 @@ struct Ribbon: View {
                 }
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 4)
-                .frame(maxWidth: .infinity, maxHeight: 92, alignment: .topLeading)
+                // minWidth 0: la cinta nunca exige más ancho que la ventana; lo que no cabe se recorta.
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: 92, alignment: .topLeading)
                 .frame(height: 92)
                 .clipped()
                 .background(Color(nsColor: .controlBackgroundColor))

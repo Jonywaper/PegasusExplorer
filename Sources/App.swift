@@ -6,25 +6,24 @@ struct PegasusExplorerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        WindowGroup(for: URL.self) { $url in
-            ContentView(initialURL: url)
-        }
-        .defaultSize(width: 1180, height: 720)
-        .commands { ExplorerCommands() }
+        // Las ventanas las crea WindowManager; esta escena solo existe para tener los menús.
+        Settings { EmptyView() }
+            .commands { ExplorerCommands() }
     }
 }
 
 struct ExplorerCommands: Commands {
-    @FocusedObject var state: AppState?
-    @Environment(\.openWindow) private var openWindow
+    /// La ventana que está al frente.
+    private var state: AppState? { AppState.active }
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("Acerca de \(appName)") { AboutWindow.show() }
             Button("Buscar actualizaciones…") { UpdateChecker.check(manual: true) }
         }
+        CommandGroup(replacing: .appSettings) {}
         CommandGroup(replacing: .newItem) {
-            Button("Ventana nueva") { openWindow(value: state?.currentTab.url ?? FileManager.default.homeDirectoryForCurrentUser) }
+            Button("Ventana nueva") { WindowManager.open(state?.currentTab.url) }
                 .keyboardShortcut("n")
             Button("Pestaña nueva") { state?.newTab() }
                 .keyboardShortcut("t")
@@ -60,7 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchURLs.isEmpty ? nil : launchURLs.removeFirst()
     }
 
+    private static var launched = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.launched = true
+        // Primera ventana: la carpeta que pidió otra app, o la carpeta de inicio.
+        let pending = AppDelegate.launchURLs
+        AppDelegate.launchURLs = []
+        if pending.isEmpty { WindowManager.open() } else { pending.forEach { WindowManager.open($0) } }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             KeyboardShortcuts.handle(event) ? nil : event
         }
@@ -78,12 +84,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = FinderService.shared
         NSUpdateDynamicServices()
         debugLog("inicio: PegasusExplorer \(UpdateChecker.currentVersion), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        Watchdog.start()
         runSnapshotIfRequested()
         // Avisa si hay una versión nueva (como mucho una vez al día).
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UpdateChecker.checkAtLaunch() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Clic en el ícono del Dock sin ventanas abiertas: abre una.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag && !WindowManager.hasWindows { WindowManager.open() }
+        return true
+    }
 
     /// Cuando esta app es el explorador predeterminado, otras apps le piden abrir carpetas.
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -94,7 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func reveal(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         guard let state = AppState.active else {
-            launchURLs.append(contentsOf: urls.map { AppState.isFolder($0) ? $0 : $0.deletingLastPathComponent() })
+            let folders = urls.map { AppState.isFolder($0) ? $0 : $0.deletingLastPathComponent() }
+            if launched { folders.forEach { WindowManager.open($0) } } else { launchURLs.append(contentsOf: folders) }
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
         for url in urls {
@@ -198,6 +213,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // SE_WINSIZE="ancho,alto": tamaño de la ventana para la prueba.
+        if let size = env["SE_WINSIZE"]?.split(separator: ",").compactMap({ Double($0) }), size.count == 2 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if let window = AppState.active?.window {
+                    window.setFrame(NSRect(x: 60, y: 60, width: size[0], height: size[1]), display: true)
+                }
+            }
+        }
+        // SE_ACTIVATE=1: trae la app al frente (el resaltado al pasar el ratón solo funciona así).
+        if env["SE_ACTIVATE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+                NSApp.activate(ignoringOtherApps: true)
+                AppState.active?.window?.makeKeyAndOrderFront(nil)
+            }
+        }
         // SE_HOVER=1: mueve el ratón (virtualmente) por toda la ventana, para probar el redibujado.
         if env["SE_HOVER"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
@@ -221,8 +251,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if env["SE_CLICK"] != nil { print("ubicación:", AppState.active?.currentTab.url.absoluteString ?? "-") }
             if env["SE_SIZES"] != nil, let window = AppState.active?.window, let view = window.contentView {
-                print("ventana:", window.frame.size, "mínimo ventana:", window.contentMinSize,
-                      "mínimo contenido:", view.fittingSize, "restricciones:", view.constraints.count)
+                print("ventana:", window.frame.size, "mínimo ventana:", window.minSize,
+                      "restricciones:", view.constraints.count, "contenedor:", view.bounds,
+                      "contenido:", view.subviews.first?.frame ?? .zero, "márgenes:", view.subviews.first?.safeAreaInsets ?? NSEdgeInsets())
             }
             let window = env["SE_ABOUT"] != nil
                 ? NSApp.windows.first { $0.title.hasPrefix("Acerca de") }
@@ -408,5 +439,42 @@ final class FinderService: NSObject {
             return
         }
         DispatchQueue.main.async { AppDelegate.reveal(urls) }
+    }
+}
+
+/// Detector de bloqueos: si la ventana deja de responder más de 4 segundos, anota en el registro
+/// qué carpeta, vista y tamaño de ventana había, para poder reproducir el problema.
+enum Watchdog {
+    private static var lastBeat = Date()
+    private static var context = ""
+    private static var reported = false
+    private static let lock = NSLock()
+
+    static func start() {
+        // Latido desde el hilo principal, con el contexto actual.
+        // En modos «common» para que también lata con un menú abierto o al redimensionar.
+        let beat = Timer(timeInterval: 1, repeats: true) { _ in
+            let state = AppState.active
+            let tab = state?.currentTab
+            let frame = state?.window?.frame ?? .zero
+            let text = "carpeta=\(tab?.url.path ?? "-") vista=\(tab?.viewMode.rawValue ?? "-") elementos=\(tab?.items.count ?? 0) "
+                + "ventana=\(Int(frame.width))x\(Int(frame.height)) barras=\(NSScroller.preferredScrollerStyle == .legacy ? "fijas" : "superpuestas") "
+                + "panel=\(UserDefaults.standard.double(forKey: "sidebarWidth"))"
+            lock.lock(); lastBeat = Date(); context = text; reported = false; lock.unlock()
+        }
+        RunLoop.main.add(beat, forMode: .common)
+        let thread = Thread {
+            while true {
+                Thread.sleep(forTimeInterval: 2)
+                lock.lock()
+                let stalled = Date().timeIntervalSince(lastBeat) > 4 && !reported
+                let text = context
+                if stalled { reported = true }
+                lock.unlock()
+                if stalled { debugLog("BLOQUEO: la ventana no responde. \(text)") }
+            }
+        }
+        thread.name = "PegasusWatchdog"
+        thread.start()
     }
 }

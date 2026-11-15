@@ -5,7 +5,6 @@ let appName = "PegasusExplorer"
 struct ContentView: View {
     @StateObject private var state: AppState
     @ObservedObject private var prefs = Preferences.shared
-    @Environment(\.openWindow) private var openWindow
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 175
     @AppStorage("previewWidth") private var previewWidth: Double = 300
 
@@ -18,7 +17,7 @@ struct ContentView: View {
         let tab = state.currentTab
         // El contenido va dentro de un GeometryReader: así sus cambios de tamaño no se transmiten
         // a la ventana (en macOS 13 eso podía provocar un bucle de acomodo y cerrar la app).
-        GeometryReader { _ in
+        GeometryReader { geometry in
             VStack(spacing: 0) {
                 TabStrip(state: state)
                 Ribbon(state: state, tab: tab)
@@ -43,16 +42,17 @@ struct ContentView: View {
                 Divider()
                 StatusBar(state: state, tab: tab)
             }
+            // Tamaño exacto de la ventana: si algo no cabe, se recorta en vez de empujar el diseño.
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .clipped()
         }
         .frame(minWidth: 820, minHeight: 500)
-        .navigationTitle(appName)
         .background(WindowAccessor { window in
             state.window = window
             AppState.active = state
         })
-        .focusedSceneObject(state)
         .onAppear {
-            state.openWindowAction = { url in openWindow(value: url) }
+            state.openWindowAction = { url in WindowManager.open(url) }
             focusFileList(in: state.window)
         }
         .onChange(of: state.selectedTabID) { _ in focusFileList(in: state.window) }
@@ -226,6 +226,8 @@ struct TabStrip: View {
             .help("Nueva pestaña (Ctrl+T)")
             Spacer(minLength: 0)
         }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
         .padding(.horizontal, 8)
         .padding(.top, 4)
         .background(Color(nsColor: .windowBackgroundColor))

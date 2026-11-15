@@ -124,7 +124,7 @@ La primera vez que abras Escritorio, Documentos, Descargas o un disco externo, m
 
 ## Si la app se cierra sola
 
-PegasusExplorer anota en `~/Library/Logs/PegasusExplorer.log` las carpetas que abres y la vista que usas, para poder entender un cierre inesperado. Ese archivo se queda en tu Mac; no se envía a ningún lado. Si reportas un problema, adjúntalo junto con el reporte de macOS.
+PegasusExplorer anota en `~/Library/Logs/PegasusExplorer.log` las carpetas que abres y la vista que usas, para poder entender un cierre inesperado. Si la ventana deja de responder, también anota el tamaño de la ventana y el tipo de barra de desplazamiento. Ese archivo se queda en tu Mac; no se envía a ningún lado. Si reportas un problema, adjúntalo junto con el reporte de macOS.
 
 ## Pendiente
 

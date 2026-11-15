@@ -46,6 +46,9 @@ struct ItemsView: View {
         var frames: [URL: CGRect] = [:]
     }
 
+    /// Hueco reservado para la barra de desplazamiento vertical.
+    static let scrollerGutter: CGFloat = 16
+
     private var iconSize: CGFloat {
         switch tab.viewMode {
         case .largeIcons: return 96
@@ -84,6 +87,11 @@ struct ItemsView: View {
                                 .padding(8)
                             }
                         }
+                        // Ancho fijo que siempre reserva el hueco de la barra de desplazamiento: así el diseño
+                        // no depende de si la barra está visible. (Si dependiera, con la barra siempre visible de
+                        // macOS podía oscilar sin fin: aparece la barra, cambian las columnas, cambia el alto,
+                        // desaparece la barra… hasta colgar o cerrar la app.)
+                        .frame(width: max(0, viewport.size.width - ItemsView.scrollerGutter), alignment: .topLeading)
                         .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
                         .contentShape(Rectangle())
                         .onTapGesture { tab.selection = [] }
@@ -198,8 +206,7 @@ struct ItemsView: View {
             }
         }
         .opacity(item.isHidden ? 0.55 : 1)
-        .background(RoundedRectangle(cornerRadius: 3).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(isSelected ? Color.accentColor.opacity(0.55) : .clear))
+        .modifier(ItemHighlight(isSelected: isSelected, cornerRadius: 3, border: true, idle: .clear))
     }
 
     /// Clic, Ctrl/Cmd+clic (agregar o quitar), Mayús+clic (rango) y doble clic (abrir).
@@ -303,9 +310,28 @@ struct DetailsRow: View {
         .opacity(item.isHidden ? 0.55 : 1)
         .padding(.horizontal, 10)
         .frame(height: 22)
-        .background(
-            isSelected ? Color.accentColor.opacity(0.22)
-                : (index % 2 == 1 ? Color.primary.opacity(0.035) : Color.clear))
+        .modifier(ItemHighlight(isSelected: isSelected, cornerRadius: 0, border: false,
+                                idle: index % 2 == 1 ? Color.primary.opacity(0.035) : .clear))
+    }
+}
+
+/// Fondo de un elemento: seleccionado, o resaltado más tenue al pasar el ratón (como en Windows).
+struct ItemHighlight: ViewModifier {
+    let isSelected: Bool
+    let cornerRadius: CGFloat
+    let border: Bool
+    let idle: Color
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(isSelected ? Color.accentColor.opacity(hovering ? 0.30 : 0.22)
+                                 : (hovering ? Color.accentColor.opacity(0.10) : idle)))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(border && isSelected ? Color.accentColor.opacity(0.55)
+                                             : (border && hovering ? Color.accentColor.opacity(0.25) : .clear)))
+            .onHover { hovering = $0 }
     }
 }
 
