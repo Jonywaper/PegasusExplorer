@@ -44,6 +44,8 @@ No funciona en macOS 12 Monterey ni anteriores: usa funciones de macOS 13.
 - **Carpetas amarillas** como en Windows, y **miniaturas** de fotos, PDF, videos y documentos en las vistas de iconos.
 - **Aviso de actualizaciones:** al abrirla revisa una vez al día si hay una versión nueva en GitHub (se puede desactivar en el menú Archivo).
 - **Google Drive, OneDrive, Dropbox e iCloud Drive** en Este equipo y en el panel de navegación. Si tienes varias cuentas, cada una aparece con su correo, como en Windows. Google Drive muestra además su espacio disponible.
+- **Carpetas sincronizadas con Google Drive** (las de «Mi computadora» en Google Drive para escritorio): muestran el logo de Google Drive y su estado, como OneDrive en Windows: ✓ verde *listo*, ⟳ azul *sincronizando*, ⏸ gris *Google Drive cerrado*. Los archivos de adentro también muestran su estado.
+- **Selección por área:** arrastra con el botón presionado para seleccionar varios elementos con un rectángulo (⌘ o Mayús para agregar a la selección).
 - **Unidades de red:** SMB, AFP, NFS, FTP y WebDAV. macOS pide el usuario y la contraseña y los guarda en el llavero.
 - **Funciones de Finder que Windows no tiene:**
   - Vista rápida (barra espaciadora) y panel de vista previa.
@@ -52,6 +54,7 @@ No funciona en macOS 12 Monterey ni anteriores: usa funciones de macOS 13.
   - Mostrar contenido del paquete.
   - AirDrop y Compartir.
   - Abrir en Terminal y Mostrar en Finder.
+- **«Abrir en PegasusExplorer» en el clic derecho del Finder** (en *Servicios*): abre una carpeta en una pestaña nueva, o la carpeta de un archivo con ese archivo seleccionado. Si no aparece, actívalo en Configuración del Sistema → Teclado → Atajos de teclado → Servicios → Archivos y carpetas.
 - **Explorador predeterminado** (menú Archivo): hace que las carpetas que abren otras apps se abran en PegasusExplorer. macOS no permite reemplazar el Finder por completo (el Escritorio y «Mostrar en Finder» siguen usándolo).
 - **Copiar y pegar compatible con Finder.** Las copias se llaman «nombre - copia», como en Windows.
 

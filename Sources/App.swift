@@ -74,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return event
             }
         }
+        // «Abrir en PegasusExplorer» en el clic derecho del Finder (Servicios / Acciones rápidas).
+        NSApp.servicesProvider = FinderService.shared
+        NSUpdateDynamicServices()
         runSnapshotIfRequested()
         // Avisa si hay una versión nueva (como mucho una vez al día).
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UpdateChecker.checkAtLaunch() }
@@ -83,17 +86,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Cuando esta app es el explorador predeterminado, otras apps le piden abrir carpetas.
     func application(_ application: NSApplication, open urls: [URL]) {
-        let folders = urls.filter { $0.isFileURL }
-        guard !folders.isEmpty else { return }
-        if let state = AppState.active {
-            for url in folders {
-                if AppState.isFolder(url) { state.newTab(at: url) } else { state.newTab(at: url.deletingLastPathComponent()) }
-            }
-            state.window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        } else {
-            AppDelegate.launchURLs.append(contentsOf: folders)
+        AppDelegate.reveal(urls.filter { $0.isFileURL })
+    }
+
+    /// Abre cada carpeta en una pestaña nueva; para un archivo, abre su carpeta y lo selecciona.
+    static func reveal(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        guard let state = AppState.active else {
+            launchURLs.append(contentsOf: urls.map { AppState.isFolder($0) ? $0 : $0.deletingLastPathComponent() })
+            return
         }
+        for url in urls {
+            if AppState.isFolder(url) {
+                state.newTab(at: url)
+            } else {
+                state.newTab(at: url.deletingLastPathComponent())
+                state.currentTab.selection = [url.standardizedFileURL]
+            }
+        }
+        debugLog("abrir desde fuera: \(urls.map(\.path)) -> pestañas: \(state.tabs.map(\.url.path)), seleccionado: \(state.currentTab.selection.map(\.lastPathComponent))")
+        state.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Para desarrollo: SE_SNAPSHOT=/ruta/captura.png guarda una imagen de la ventana y cierra la app.
@@ -131,6 +144,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             NSApp.postEvent(event, atStart: false)
                         }
                     }
+                }
+            }
+        }
+        // SE_DRAG="x1,y1,x2,y2": arrastra con el botón presionado (para probar la selección por área).
+        if let drag = env["SE_DRAG"]?.split(separator: ",").compactMap({ Double($0) }), drag.count == 4 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                guard let window = AppState.active?.window, let content = window.contentView else { return }
+                let h = content.bounds.height
+                var points = [NSPoint(x: drag[0], y: h - drag[1])]
+                for step in 1...10 {
+                    let t = Double(step) / 10
+                    points.append(NSPoint(x: drag[0] + (drag[2] - drag[0]) * t, y: h - (drag[1] + (drag[3] - drag[1]) * t)))
+                }
+                for (index, point) in points.enumerated() {
+                    let type: NSEvent.EventType = index == 0 ? .leftMouseDown : .leftMouseDragged
+                    if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil,
+                                                      eventNumber: 0, clickCount: 1, pressure: 1) {
+                        NSApp.postEvent(event, atStart: false)
+                    }
+                }
+                // Captura con el botón aún presionado para ver el rectángulo; se suelta después.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if let event = NSEvent.mouseEvent(with: .leftMouseUp, location: points.last!, modifierFlags: [],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil,
+                                                      eventNumber: 0, clickCount: 1, pressure: 0) {
+                        NSApp.postEvent(event, atStart: false)
+                    }
+                }
+            }
+        }
+        // SE_HOVER=1: mueve el ratón (virtualmente) por toda la ventana, para probar el redibujado.
+        if env["SE_HOVER"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                guard let window = AppState.active?.window, let content = window.contentView else { return }
+                var y: CGFloat = 10
+                while y < content.bounds.height {
+                    var x: CGFloat = 10
+                    while x < content.bounds.width {
+                        if let event = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: x, y: y), modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                                          windowNumber: window.windowNumber, context: nil,
+                                                          eventNumber: 0, clickCount: 0, pressure: 0) {
+                            NSApp.postEvent(event, atStart: false)
+                        }
+                        x += 40
+                    }
+                    y += 30
                 }
             }
         }
@@ -285,5 +348,21 @@ func debugLog(_ message: String) {
         handle.closeFile()
     } else {
         try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Servicio de macOS que aparece en el clic derecho del Finder.
+final class FinderService: NSObject {
+    static let shared = FinderService()
+
+    @objc func openInPegasus(_ pasteboard: NSPasteboard, userData: String?,
+                             error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else {
+            error.pointee = "No se recibió ningún archivo ni carpeta." as NSString
+            return
+        }
+        DispatchQueue.main.async { AppDelegate.reveal(urls) }
     }
 }

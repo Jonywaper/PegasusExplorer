@@ -88,6 +88,15 @@ struct IconGrid: View {
     let items: [FileItem]
     let showExtensions: Bool
     @State private var anchor: URL?
+    /// Rectángulo de selección mientras se arrastra (en coordenadas de la cuadrícula).
+    @State private var marquee: CGRect?
+    @State private var selectionBeforeDrag = Set<URL>()
+    /// Posición de cada elemento; se guarda aparte para no redibujar en cada cambio.
+    @State private var frames = FrameStore()
+
+    final class FrameStore {
+        var frames: [URL: CGRect] = [:]
+    }
 
     private var iconSize: CGFloat {
         switch tab.viewMode {
@@ -106,25 +115,60 @@ struct IconGrid: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                ForEach(items) { item in
-                    cell(item)
-                        .contentShape(Rectangle())
-                        .onTapGesture { click(item) }
-                        .contextMenu {
-                            ItemContextMenu(state: state,
-                                            urls: tab.selection.contains(item.url) ? state.targets(tab.selection) : [item.url])
-                        }
+        GeometryReader { viewport in
+            ScrollView {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                    ForEach(items) { item in
+                        cell(item)
+                            .contentShape(Rectangle())
+                            .onTapGesture { click(item) }
+                            .contextMenu {
+                                ItemContextMenu(state: state,
+                                                urls: tab.selection.contains(item.url) ? state.targets(tab.selection) : [item.url])
+                            }
+                            .background(GeometryReader { geo in
+                                Color.clear.preference(key: CellFramesKey.self,
+                                                       value: [item.url: geo.frame(in: .named("cuadricula"))])
+                            })
+                    }
                 }
+                .padding(8)
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .onTapGesture { tab.selection = [] }
+                .background(MarqueeTracker(onChange: updateMarquee))
+                .overlay(alignment: .topLeading) {
+                    if let marquee {
+                        Rectangle()
+                            .fill(Color.accentColor.opacity(0.15))
+                            .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
+                            .frame(width: marquee.width, height: marquee.height)
+                            .offset(x: marquee.minX, y: marquee.minY)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .coordinateSpace(name: "cuadricula")
+                .onPreferenceChange(CellFramesKey.self) { frames.frames = $0 }
             }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .contentShape(Rectangle())
-        .onTapGesture { tab.selection = [] }
         .contextMenu { BackgroundContextMenu(state: state, tab: tab) }
+    }
+
+    /// Selección por área: arrastrar con el botón presionado dibuja un rectángulo y selecciona lo que toca.
+    /// Con ⌘, Ctrl o Mayús se agrega a la selección que ya había.
+    private func updateMarquee(_ rect: CGRect?, _ flags: NSEvent.ModifierFlags) {
+        guard let rect else {
+            marquee = nil
+            return
+        }
+        if marquee == nil {
+            let additive = flags.contains(.command) || flags.contains(.shift) || flags.contains(.control)
+            selectionBeforeDrag = additive ? tab.selection : []
+        }
+        marquee = rect
+        let touched = frames.frames.filter { $0.value.intersects(rect) }.map(\.key)
+        tab.selection = selectionBeforeDrag.union(touched)
     }
 
     @ViewBuilder
@@ -186,6 +230,83 @@ struct IconGrid: View {
         } else {
             tab.selection = [item.url]
             anchor = item.url
+        }
+    }
+}
+
+/// Posiciones de los elementos de la cuadrícula (para la selección por área).
+struct CellFramesKey: PreferenceKey {
+    static var defaultValue: [URL: CGRect] = [:]
+    static func reduce(value: inout [URL: CGRect], nextValue: () -> [URL: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+/// Sigue el ratón con eventos de AppKit para la selección por área (más fiable que un gesto de SwiftUI).
+/// No intercepta clics: solo observa, así los clics y el doble clic siguen funcionando.
+struct MarqueeTracker: NSViewRepresentable {
+    let onChange: (CGRect?, NSEvent.ModifierFlags) -> Void
+
+    func makeNSView(context: Context) -> TrackerView {
+        let view = TrackerView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: TrackerView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class TrackerView: NSView {
+        var onChange: ((CGRect?, NSEvent.ModifierFlags) -> Void)?
+        private var monitor: Any?
+        private var start: NSPoint?
+        private var startFlags: NSEvent.ModifierFlags = []
+        private var active = false
+
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+                self?.handle(event)
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        private func handle(_ event: NSEvent) {
+            guard let window, event.window === window else { return }
+            let point = convert(event.locationInWindow, from: nil)
+            switch event.type {
+            case .leftMouseDown:
+                // Solo si el clic cae en la parte visible de la cuadrícula (no en el panel lateral ni la cinta).
+                start = visibleRect.contains(point) && event.clickCount == 1 ? point : nil
+                startFlags = event.modifierFlags
+                active = false
+            case .leftMouseDragged:
+                guard let start else { return }
+                if !active && hypot(point.x - start.x, point.y - start.y) < 5 { return }
+                active = true
+                let rect = CGRect(x: min(start.x, point.x), y: min(start.y, point.y),
+                                  width: abs(point.x - start.x), height: abs(point.y - start.y))
+                onChange?(rect, startFlags)
+            case .leftMouseUp:
+                if active { onChange?(nil, startFlags) }
+                start = nil
+                active = false
+            default:
+                break
+            }
         }
     }
 }

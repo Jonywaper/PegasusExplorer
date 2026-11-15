@@ -49,6 +49,12 @@ struct ItemIcon: View {
     var size: CGFloat = 16
 
     var body: some View {
+        baseIcon
+            .overlay(DriveSyncBadge(url: item.url, size: size))
+    }
+
+    @ViewBuilder
+    private var baseIcon: some View {
         if item.isDirectory {
             WindowsFolderIcon(size: size, symbol: KnownFolder.matching(item.url)?.symbol)
         } else if size >= 32 && !item.isApplication {

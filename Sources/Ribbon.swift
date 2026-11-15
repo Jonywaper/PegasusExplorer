@@ -52,18 +52,19 @@ struct Ribbon: View {
 
             if prefs.showRibbon {
                 Divider()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 0) {
-                        switch selected {
-                        case "Compartir": shareTab
-                        case "Vista": viewTab
-                        default: homeTab
-                        }
-                        Spacer(minLength: 0)
+                // Sin área desplazable: si la ventana es angosta, la cinta se recorta a la derecha.
+                HStack(alignment: .top, spacing: 0) {
+                    switch selected {
+                    case "Compartir": shareTab
+                    case "Vista": viewTab
+                    default: homeTab
                     }
-                    .padding(.horizontal, 4)
                 }
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, maxHeight: 92, alignment: .topLeading)
                 .frame(height: 92)
+                .clipped()
                 .background(Color(nsColor: .controlBackgroundColor))
             }
         }

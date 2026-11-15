@@ -123,14 +123,21 @@ struct PreviewArea: View {
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: (NSWindow) -> Void
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { if let window = view.window { onWindow(window) } }
+    func makeNSView(context: Context) -> WindowWatcher {
+        let view = WindowWatcher()
+        view.onWindow = onWindow
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { if let window = view.window { onWindow(window) } }
+    func updateNSView(_ view: WindowWatcher, context: Context) {}
+
+    /// Avisa una sola vez cuando la vista entra en una ventana (no en cada redibujado).
+    final class WindowWatcher: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { DispatchQueue.main.async { self.onWindow?(window) } }
+        }
     }
 }
 
@@ -141,6 +148,7 @@ struct PaneDivider: View {
     /// true: el panel está a la izquierda del divisor (crece al arrastrar a la derecha).
     let growsToRight: Bool
     @State private var startWidth: Double?
+    @State private var cursorPushed = false
 
     var body: some View {
         Rectangle()
@@ -151,7 +159,14 @@ struct PaneDivider: View {
                     .frame(width: 9)
                     .contentShape(Rectangle())
                     .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                        // Empuja y quita el cursor una sola vez (si se desbalancea, macOS se confunde).
+                        if inside && !cursorPushed {
+                            NSCursor.resizeLeftRight.push()
+                            cursorPushed = true
+                        } else if !inside && cursorPushed {
+                            NSCursor.pop()
+                            cursorPushed = false
+                        }
                     }
                     .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { value in
@@ -190,15 +205,13 @@ struct TabStrip: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(state.tabs) { tab in
-                        TabButton(tab: tab, isSelected: tab.id == state.selectedTabID,
-                                  select: { state.selectedTabID = tab.id },
-                                  close: { state.closeTab(tab.id) },
-                                  newWindow: { state.newWindow(at: tab.url); state.closeTab(tab.id) })
-                    }
-                }
+            // Las pestañas se encogen cuando hay muchas, como en Windows y Chrome.
+            ForEach(state.tabs) { tab in
+                TabButton(tab: tab, isSelected: tab.id == state.selectedTabID,
+                          select: { state.selectedTabID = tab.id },
+                          close: { state.closeTab(tab.id) },
+                          newWindow: { state.newWindow(at: tab.url); state.closeTab(tab.id) })
+                    .frame(minWidth: 70, maxWidth: 220, alignment: .leading)
             }
             Button(action: { state.newTab() }) {
                 Image(systemName: "plus").frame(width: 24, height: 24)
@@ -228,7 +241,8 @@ struct TabButton: View {
             } else {
                 WindowsFolderIcon(size: 16)
             }
-            Text(tab.title).lineLimit(1).frame(maxWidth: 160, alignment: .leading)
+            Text(tab.title).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 0)
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
             }
@@ -365,27 +379,39 @@ struct AddressBar: View {
                         }
                     }
                     .padding(.horizontal, 6)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 8, weight: .semibold)).foregroundColor(.secondary)
-                                    .padding(.horizontal, 3)
-                                Button(segment.title) { tab.navigate(to: segment.url) }
-                                    .buttonStyle(BreadcrumbStyle())
-                            }
+                    // Si la ruta no cabe, oculta las primeras carpetas y muestra «, como Windows.
+                    let all = segments
+                    ViewThatFits(in: .horizontal) {
+                        ForEach(0..<all.count, id: \.self) { hidden in
+                            crumbs(Array(all.dropFirst(hidden)), truncated: hidden > 0)
                         }
                     }
-                    .layoutPriority(1)
-                    Spacer(minLength: 20)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .onTapGesture(perform: beginEditing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: beginEditing))
                 }
             }
         }
         .frame(height: 26)
         .onChange(of: state.editAddressRequest) { _ in beginEditing() }
+    }
+
+    private func crumbs(_ list: [(title: String, url: URL)], truncated: Bool) -> some View {
+        HStack(spacing: 0) {
+            if truncated {
+                Text("«").foregroundColor(.secondary).padding(.horizontal, 3)
+            }
+            ForEach(Array(list.enumerated()), id: \.offset) { _, segment in
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold)).foregroundColor(.secondary)
+                    .padding(.horizontal, 3)
+                Button(segment.title) { tab.navigate(to: segment.url) }
+                    .buttonStyle(BreadcrumbStyle())
+            }
+        }
+        .fixedSize()
     }
 
     private func beginEditing() {
