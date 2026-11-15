@@ -6,7 +6,8 @@ final class FolderNode: ObservableObject, Identifiable {
     let name: String
     @Published var children: [FolderNode]?
     @Published var isExpanded = false {
-        didSet { if isExpanded && children == nil { loadChildren() } }
+        // Al expandir se vuelve a leer, para que aparezcan las carpetas nuevas.
+        didSet { if isExpanded { loadChildren() } }
     }
 
     var id: URL { url }
@@ -49,9 +50,25 @@ final class SidebarModel: ObservableObject {
 }
 
 /// Panel de navegación como el de Windows: Acceso rápido, Este equipo y Red.
-struct SidebarView: View {
-    @ObservedObject var state: AppState
+/// Observa la pestaña y le pasa al panel solo la carpeta actual: así el panel no se
+/// redibuja con cada clic de selección, solo cuando cambias de carpeta.
+struct SidebarHost: View {
+    let state: AppState
     @ObservedObject var tab: ExplorerTab
+
+    var body: some View {
+        SidebarView(state: state, currentURL: tab.url).equatable()
+    }
+}
+
+struct SidebarView: View, Equatable {
+    let state: AppState
+    let currentURL: URL
+
+    static func == (a: SidebarView, b: SidebarView) -> Bool {
+        a.state === b.state && a.currentURL == b.currentURL
+    }
+
     @ObservedObject var prefs = Preferences.shared
     @StateObject private var model = SidebarModel()
 
@@ -65,7 +82,7 @@ struct SidebarView: View {
                 }
                 if model.quickAccessExpanded {
                     ForEach(prefs.pinned, id: \.self) { url in
-                        SidebarRow(depth: 1, isCurrent: tab.url == url.standardizedFileURL,
+                        SidebarRow(depth: 1, isCurrent: currentURL == url.standardizedFileURL,
                                    action: { state.currentTab.navigate(to: url) }) {
                             folderIcon(for: url)
                         } label: {
@@ -89,25 +106,25 @@ struct SidebarView: View {
                 // Este equipo
                 SectionHeader(title: "Este equipo", symbol: "desktopcomputer", tint: .blue,
                               isExpanded: $model.thisPCExpanded,
-                              isCurrent: tab.isThisPC) {
+                              isCurrent: Locations.isThisPC(currentURL)) {
                     state.currentTab.navigate(to: Locations.thisPC)
                 }
                 if model.thisPCExpanded {
                     FolderTreeRow(node: model.node(FileManager.default.homeDirectoryForCurrentUser),
-                                  model: model, state: state, tab: tab, depth: 1, customIcon: AnyView(
+                                  model: model, state: state, currentURL: currentURL, depth: 1, customIcon: AnyView(
                                     Image(systemName: "house.fill").foregroundColor(.blue)))
                     ForEach(KnownFolder.allCases, id: \.self) { folder in
                         FolderTreeRow(node: model.node(folder.url, name: folder.title),
-                                      model: model, state: state, tab: tab, depth: 1)
+                                      model: model, state: state, currentURL: currentURL, depth: 1)
                     }
                     ForEach(prefs.cloudDrives) { drive in
                         FolderTreeRow(node: model.node(drive.url, name: drive.name),
-                                      model: model, state: state, tab: tab, depth: 1,
+                                      model: model, state: state, currentURL: currentURL, depth: 1,
                                       customIcon: AnyView(CloudIcon(drive: drive)))
                     }
                     ForEach(prefs.localVolumes) { volume in
                         FolderTreeRow(node: model.node(volume.url, name: volume.name),
-                                      model: model, state: state, tab: tab, depth: 1,
+                                      model: model, state: state, currentURL: currentURL, depth: 1,
                                       customIcon: AnyView(DriveIcon(volume: volume)), volume: volume)
                     }
                 }
@@ -122,7 +139,7 @@ struct SidebarView: View {
                 if model.networkExpanded {
                     ForEach(prefs.networkVolumes) { volume in
                         FolderTreeRow(node: model.node(volume.url, name: volume.name),
-                                      model: model, state: state, tab: tab, depth: 1,
+                                      model: model, state: state, currentURL: currentURL, depth: 1,
                                       customIcon: AnyView(Image(systemName: "server.rack").foregroundColor(.green)),
                                       volume: volume)
                     }
@@ -224,7 +241,7 @@ struct FolderTreeRow: View {
     @ObservedObject var node: FolderNode
     let model: SidebarModel
     let state: AppState
-    @ObservedObject var tab: ExplorerTab
+    let currentURL: URL
     var depth: Int
     var customIcon: AnyView?
     var volume: Volume?
@@ -271,7 +288,7 @@ struct FolderTreeRow: View {
                 if let children = node.children {
                     ForEach(children) { child in
                         FolderTreeRow(node: model.node(child.url, name: child.name), model: model,
-                                      state: state, tab: tab, depth: depth + 1)
+                                      state: state, currentURL: currentURL, depth: depth + 1)
                     }
                 } else {
                     Text("Cargando…")
@@ -282,7 +299,7 @@ struct FolderTreeRow: View {
         }
     }
 
-    private var isCurrent: Bool { tab.url == node.url.standardizedFileURL }
+    private var isCurrent: Bool { currentURL == node.url.standardizedFileURL }
 
     private var icon: some View {
         Group {

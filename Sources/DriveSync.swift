@@ -62,6 +62,7 @@ final class DriveSync: ObservableObject {
     private var snapshot = Snapshot()
     private var driveRunning = false
     private var lastChange: Date?
+    private var loaded = false
     private var timer: Timer?
     private let queue = DispatchQueue(label: "DriveSync", qos: .utility)
 
@@ -105,22 +106,26 @@ final class DriveSync: ObservableObject {
 
     private func refresh() {
         let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.google.drivefs" }
+        let previous = lastChange
+        let wasLoaded = loaded
         queue.async { [weak self] in
             guard let self else { return }
             let base = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/Google/DriveFS")
             // Solo vuelve a leer si Google Drive cambió algo desde la última vez.
-            let watched = [base.appendingPathComponent("root_preference_sqlite.db-wal")]
-                + Self.accountFolders(in: base).map { $0.appendingPathComponent("mirror_sqlite.db-wal") }
+            let names = Self.accountFolders(in: base).map { $0.appendingPathComponent("mirror_sqlite.db") }
+                + [base.appendingPathComponent("root_preference_sqlite.db")]
+            let watched = names + names.map { URL(fileURLWithPath: $0.path + "-wal") }
             let newest = watched.compactMap {
                 (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             }.max()
-            let changed = newest != self.lastChange
+            let changed = !wasLoaded || newest != previous
             let snapshot = changed ? Self.load(base: base) : nil
             DispatchQueue.main.async {
                 if let snapshot {
                     self.snapshot = snapshot
                     self.lastChange = newest
+                    self.loaded = true
                 }
                 if changed || running != self.driveRunning {
                     self.driveRunning = running

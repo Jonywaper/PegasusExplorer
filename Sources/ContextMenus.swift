@@ -1,146 +1,173 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Menú de clic derecho sobre archivos y carpetas
+// Los menús de clic derecho se construyen como NSMenu en el momento de usarlos.
 
-struct ItemContextMenu: View {
-    let state: AppState
-    let urls: [URL]
+extension AppState {
+    private func appName(_ url: URL) -> String {
+        FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+    }
 
-    var body: some View {
+    private func pinTitle(_ url: URL) -> String {
+        prefs.isPinned(url) ? "Desanclar del Acceso rápido" : "Anclar al Acceso rápido"
+    }
+
+    /// Menú de clic derecho sobre archivos y carpetas.
+    func itemMenuEntries(_ urls: [URL]) -> [MenuEntry] {
         let folders = urls.filter(AppState.isFolder)
+        let files = urls.filter { !folders.contains($0) }
         let single = urls.count == 1 ? urls[0] : nil
-        let singleIsFolder = single.map(AppState.isFolder) ?? false
+        let singleIsFolder = single.map { folders.contains($0) } ?? false
         let isPackage = single.map { ((try? $0.resourceValues(forKeys: [.isPackageKey]).isPackage) ?? false) } ?? false
 
-        Group {
-            Button("Abrir") { state.open(urls) }
-            if !folders.isEmpty {
-                Button("Abrir en una pestaña nueva") { state.open(folders, inNewTab: true) }
-                Button("Abrir en ventana nueva") { folders.forEach { state.newWindow(at: $0) } }
-            }
-            if !urls.isEmpty && folders.count < urls.count {
-                OpenWithMenu(state: state, urls: urls.filter { !AppState.isFolder($0) })
-            }
-            if singleIsFolder, let single {
-                Button(state.prefs.isPinned(single) ? "Desanclar del Acceso rápido" : "Anclar al Acceso rápido") {
-                    state.prefs.togglePin(single)
-                }
-            }
-            Button("Vista rápida") { state.quickLook(urls) }
-            if isPackage, let single {
-                Button("Mostrar contenido del paquete") { state.showPackageContents(single) }
-            }
-            if let single, single.pathExtension.lowercased() == "zip" {
-                Button("Extraer todo") { state.extract(single) }
-            }
+        var entries: [MenuEntry] = [MenuEntry(title: "Abrir") { [weak self] in self?.open(urls) }]
+        if !folders.isEmpty {
+            entries.append(MenuEntry(title: "Abrir en una pestaña nueva") { [weak self] in self?.open(folders, inNewTab: true) })
+            entries.append(MenuEntry(title: "Abrir en ventana nueva") { [weak self] in folders.forEach { self?.newWindow(at: $0) } })
         }
-        Divider()
-        Group {
-            ShareMenu(state: state, urls: urls)
-            SendToMenu(state: state, urls: urls)
+        if !files.isEmpty {
+            entries.append(MenuEntry(title: "Abrir con", children: openWithEntries(files)))
         }
-        Divider()
-        Group {
-            Button("Cortar") { state.cut(urls) }
-            Button("Copiar") { state.copy(urls) }
-            Button("Duplicar") { state.duplicate(urls) }
+        if singleIsFolder, let single {
+            entries.append(MenuEntry(title: pinTitle(single)) { [weak self] in self?.prefs.togglePin(single) })
         }
-        Divider()
-        Group {
-            Button("Crear acceso directo") { state.createShortcut(urls) }
-            Button("Eliminar") { state.trash(urls) }
-            Button("Eliminar permanentemente…") { state.askDeletePermanently(urls) }
-            if urls.count == 1 {
-                Button("Cambiar nombre") { state.beginRename(urls[0]) }
-            }
+        entries.append(MenuEntry(title: "Vista rápida") { [weak self] in self?.quickLook(urls) })
+        if isPackage, let single {
+            entries.append(MenuEntry(title: "Mostrar contenido del paquete") { [weak self] in self?.showPackageContents(single) })
         }
-        Divider()
-        Group {
-            TagsMenu(state: state, urls: urls)
-            Button(urls.count == 1 ? "Comprimir «\(urls[0].lastPathComponent)»" : "Comprimir \(urls.count) elementos") {
-                state.compress(urls)
-            }
-            if urls.count > 1 {
-                Button("Nueva carpeta con la selección (\(urls.count) elementos)") { state.newFolder(with: urls) }
-            }
-            Button("Copiar ruta de acceso") { state.copyPath(urls) }
-            Button("Mostrar en Finder") { state.showInFinder(urls) }
-            if singleIsFolder, let single {
-                Button("Abrir en Terminal") { state.openInTerminal(single) }
-            }
-            Divider()
-            Button("Propiedades") { state.showProperties(urls) }
+        if let single, single.pathExtension.lowercased() == "zip" {
+            entries.append(MenuEntry(title: "Extraer todo") { [weak self] in self?.extract(single) })
         }
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Compartir", children: shareEntries(urls)))
+        entries.append(MenuEntry(title: "Enviar a", children: sendToEntries(urls)))
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Cortar") { [weak self] in self?.cut(urls) })
+        entries.append(MenuEntry(title: "Copiar") { [weak self] in self?.copy(urls) })
+        entries.append(MenuEntry(title: "Duplicar") { [weak self] in self?.duplicate(urls) })
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Crear acceso directo") { [weak self] in self?.createShortcut(urls) })
+        entries.append(MenuEntry(title: "Eliminar") { [weak self] in self?.trash(urls) })
+        entries.append(MenuEntry(title: "Eliminar permanentemente…") { [weak self] in self?.askDeletePermanently(urls) })
+        if let single {
+            entries.append(MenuEntry(title: "Cambiar nombre") { [weak self] in self?.beginRename(single) })
+        }
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Etiquetas", children: tagEntries(urls)))
+        entries.append(MenuEntry(title: single.map { "Comprimir «\($0.lastPathComponent)»" } ?? "Comprimir \(urls.count) elementos") {
+            [weak self] in self?.compress(urls)
+        })
+        if urls.count > 1 {
+            entries.append(MenuEntry(title: "Nueva carpeta con la selección (\(urls.count) elementos)") { [weak self] in self?.newFolder(with: urls) })
+        }
+        entries.append(MenuEntry(title: "Copiar ruta de acceso") { [weak self] in self?.copyPath(urls) })
+        entries.append(MenuEntry(title: "Mostrar en Finder") { [weak self] in self?.showInFinder(urls) })
+        if singleIsFolder, let single {
+            entries.append(MenuEntry(title: "Abrir en Terminal") { [weak self] in self?.openInTerminal(single) })
+        }
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Propiedades") { [weak self] in self?.showProperties(urls) })
+        return entries
     }
-}
 
-// MARK: - Menú de clic derecho sobre el fondo de la carpeta
-
-struct BackgroundContextMenu: View {
-    let state: AppState
-    @ObservedObject var tab: ExplorerTab
-
-    var body: some View {
-        Group {
-            Menu("Ver") {
-                ForEach(ViewMode.allCases, id: \.self) { mode in
-                    Button { state.setViewMode(mode) } label: {
-                        if tab.viewMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
-                    }
-                }
+    /// Menú de clic derecho sobre el fondo de la carpeta.
+    func backgroundMenuEntries() -> [MenuEntry] {
+        let tab = currentTab
+        let canPaste = canWriteHere && FileClipboard.shared.hasContent
+        let sort = tab.currentSort
+        var sortEntries = SortField.allCases.map { field in
+            MenuEntry(title: field.title, checked: sort.field == field) {
+                field.apply(to: tab, ascending: sort.field == field ? !sort.ascending : field.defaultAscending)
             }
-            SortMenu(tab: tab)
-            Button("Actualizar") { tab.reload() }
         }
-        Divider()
-        Group {
-            Button("Pegar") { state.paste() }
-                .disabled(!FileClipboard.shared.hasContent)
-            Button("Pegar acceso directo") { state.pasteShortcut() }
-                .disabled(!FileClipboard.shared.hasContent)
-        }
-        Divider()
-        Menu("Nuevo") {
-            Button("Carpeta") { state.newFolder() }
-            Divider()
-            Button("Documento de texto") { state.newTextDocument() }
-            Button("Documento de texto enriquecido") { state.newTextDocument(rich: true) }
-        }
-        Divider()
-        Group {
-            Button(state.prefs.isPinned(tab.url) ? "Desanclar del Acceso rápido" : "Anclar al Acceso rápido") {
-                state.prefs.togglePin(tab.url)
-            }
-            Button("Abrir en Terminal") { state.openInTerminal() }
-            Button("Mostrar en Finder") { state.showInFinder([]) }
-            Button("Copiar ruta de acceso") { state.copyPath([]) }
-        }
-        Divider()
-        Button("Propiedades") { state.showProperties([]) }
+        sortEntries.append(.separator)
+        sortEntries.append(MenuEntry(title: "Ascendente", checked: sort.ascending) { sort.field.apply(to: tab, ascending: true) })
+        sortEntries.append(MenuEntry(title: "Descendente", checked: !sort.ascending) { sort.field.apply(to: tab, ascending: false) })
+
+        return [
+            MenuEntry(title: "Ver", children: ViewMode.allCases.map { mode in
+                MenuEntry(title: mode.title, checked: tab.viewMode == mode) { [weak self] in self?.setViewMode(mode) }
+            }),
+            MenuEntry(title: "Ordenar por", children: sortEntries),
+            MenuEntry(title: "Actualizar") { tab.reload() },
+            .separator,
+            MenuEntry(title: "Pegar", enabled: canPaste) { [weak self] in self?.paste() },
+            MenuEntry(title: "Pegar acceso directo", enabled: canPaste) { [weak self] in self?.pasteShortcut() },
+            .separator,
+            MenuEntry(title: "Nuevo", children: [
+                MenuEntry(title: "Carpeta") { [weak self] in self?.newFolder() },
+                .separator,
+                MenuEntry(title: "Documento de texto") { [weak self] in self?.newTextDocument() },
+                MenuEntry(title: "Documento de texto enriquecido") { [weak self] in self?.newTextDocument(rich: true) },
+            ]),
+            .separator,
+            MenuEntry(title: pinTitle(tab.url)) { [weak self] in self?.prefs.togglePin(tab.url) },
+            MenuEntry(title: "Abrir en Terminal") { [weak self] in self?.openInTerminal() },
+            MenuEntry(title: "Mostrar en Finder") { [weak self] in self?.showInFinder([]) },
+            MenuEntry(title: "Copiar ruta de acceso") { [weak self] in self?.copyPath([]) },
+            .separator,
+            MenuEntry(title: "Propiedades") { [weak self] in self?.showProperties([]) },
+        ]
     }
-}
 
-// MARK: - Submenús
-
-struct SortMenu: View {
-    @ObservedObject var tab: ExplorerTab
-
-    var body: some View {
-        Menu("Ordenar por") {
-            ForEach(SortField.allCases, id: \.self) { field in
-                Button { field.apply(to: tab, ascending: tab.currentSort.field == field ? !tab.currentSort.ascending : field.defaultAscending) } label: {
-                    if tab.currentSort.field == field { Label(field.title, systemImage: "checkmark") } else { Text(field.title) }
-                }
+    func openWithEntries(_ files: [URL]) -> [MenuEntry] {
+        var entries: [MenuEntry] = []
+        if let first = files.first {
+            let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: first)
+            if let defaultApp {
+                entries.append(MenuEntry(title: "\(appName(defaultApp)) (predeterminada)", image: smallIcon(defaultApp)) {
+                    [weak self] in self?.open(files, with: defaultApp)
+                })
+                entries.append(.separator)
             }
-            Divider()
-            Button { tab.currentSort.field.apply(to: tab, ascending: true) } label: {
-                if tab.currentSort.ascending { Label("Ascendente", systemImage: "checkmark") } else { Text("Ascendente") }
+            let others = NSWorkspace.shared.urlsForApplications(toOpen: first).filter { $0 != defaultApp }.prefix(15)
+            for app in others {
+                entries.append(MenuEntry(title: appName(app), image: smallIcon(app)) { [weak self] in self?.open(files, with: app) })
             }
-            Button { tab.currentSort.field.apply(to: tab, ascending: false) } label: {
-                if !tab.currentSort.ascending { Label("Descendente", systemImage: "checkmark") } else { Text("Descendente") }
+            if !others.isEmpty { entries.append(.separator) }
+        }
+        entries.append(MenuEntry(title: "Elegir otra aplicación…") { [weak self] in self?.chooseAppAndOpen(files) })
+        return entries
+    }
+
+    private func shareEntries(_ urls: [URL]) -> [MenuEntry] {
+        var entries = NSSharingService.sharingServices(forItems: urls).map { service -> MenuEntry in
+            let image = (service.image.copy() as? NSImage) ?? service.image
+            image.size = NSSize(width: 16, height: 16)
+            return MenuEntry(title: service.title, image: image) { service.perform(withItems: urls) }
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(MenuEntry(title: "Más…") { [weak self] in self?.share(urls) })
+        return entries
+    }
+
+    private func sendToEntries(_ urls: [URL]) -> [MenuEntry] {
+        var entries = [
+            MenuEntry(title: "Carpeta comprimida (en zip)") { [weak self] in self?.compress(urls) },
+            MenuEntry(title: "Destinatario de correo") { [weak self] in self?.email(urls) },
+            MenuEntry(title: "Documentos") { [weak self] in self?.copy(urls, to: KnownFolder.documents.url) },
+            MenuEntry(title: "Escritorio (crear acceso directo)") { [weak self] in self?.sendToDesktop(urls) },
+        ]
+        let drives = prefs.volumes.filter { !$0.isRoot }
+        if !drives.isEmpty {
+            entries.append(.separator)
+            entries += drives.map { volume in
+                MenuEntry(title: volume.name, image: smallIcon(volume.url)) { [weak self] in self?.copy(urls, to: volume.url) }
             }
         }
+        return entries
+    }
+
+    private func tagEntries(_ urls: [URL]) -> [MenuEntry] {
+        let current = Set(urls.flatMap { (try? $0.resourceValues(forKeys: [.tagNamesKey]).tagNames) ?? [] })
+        var entries = FinderTags.all.map { tag in
+            MenuEntry(title: tag.name, image: NSImage.dot(tag.color), checked: current.contains(tag.name)) {
+                [weak self] in self?.toggleTag(tag.name, on: urls)
+            }
+        }
+        entries.append(.separator)
+        entries.append(MenuEntry(title: "Quitar etiquetas") { [weak self] in self?.clearTags(urls) })
+        return entries
     }
 }
 
@@ -180,99 +207,6 @@ extension ExplorerTab {
         default: field = .name
         }
         return (field, first.order == .forward)
-    }
-}
-
-struct OpenWithMenu: View {
-    let state: AppState
-    let urls: [URL]
-
-    var body: some View {
-        Menu("Abrir con") {
-            if let first = urls.first {
-                let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: first)
-                let others = NSWorkspace.shared.urlsForApplications(toOpen: first)
-                    .filter { $0 != defaultApp }
-                    .prefix(15)
-                if let defaultApp {
-                    Button { state.open(urls, with: defaultApp) } label: {
-                        Label { Text("\(appName(defaultApp)) (predeterminada)") } icon: { Image(nsImage: smallIcon(defaultApp)) }
-                    }
-                    Divider()
-                }
-                ForEach(Array(others), id: \.self) { app in
-                    Button { state.open(urls, with: app) } label: {
-                        Label { Text(appName(app)) } icon: { Image(nsImage: smallIcon(app)) }
-                    }
-                }
-                Divider()
-            }
-            Button("Elegir otra aplicación…") { state.chooseAppAndOpen(urls) }
-        }
-    }
-
-    private func appName(_ url: URL) -> String {
-        FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
-    }
-}
-
-struct ShareMenu: View {
-    let state: AppState
-    let urls: [URL]
-
-    var body: some View {
-        Menu("Compartir") {
-            let services = NSSharingService.sharingServices(forItems: urls)
-            ForEach(Array(services.enumerated()), id: \.offset) { _, service in
-                Button { service.perform(withItems: urls) } label: {
-                    Label { Text(service.title) } icon: { Image(nsImage: service.image) }
-                }
-            }
-            if !services.isEmpty { Divider() }
-            Button("Más…") { state.share(urls) }
-        }
-    }
-}
-
-struct SendToMenu: View {
-    let state: AppState
-    let urls: [URL]
-
-    var body: some View {
-        Menu("Enviar a") {
-            Button("Carpeta comprimida (en zip)") { state.compress(urls) }
-            Button("Destinatario de correo") { state.email(urls) }
-            Button("Documentos") { state.copy(urls, to: KnownFolder.documents.url) }
-            Button("Escritorio (crear acceso directo)") { state.sendToDesktop(urls) }
-            let drives = state.prefs.volumes.filter { !$0.isRoot }
-            if !drives.isEmpty {
-                Divider()
-                ForEach(drives) { volume in
-                    Button { state.copy(urls, to: volume.url) } label: {
-                        Label { Text(volume.name) } icon: { Image(nsImage: smallIcon(volume.url)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct TagsMenu: View {
-    let state: AppState
-    let urls: [URL]
-
-    var body: some View {
-        Menu("Etiquetas") {
-            let current = Set(urls.flatMap { (try? $0.resourceValues(forKeys: [.tagNamesKey]).tagNames) ?? [] })
-            ForEach(FinderTags.all, id: \.self) { tag in
-                Button { state.toggleTag(tag.name, on: urls) } label: {
-                    Label { Text(current.contains(tag.name) ? "✓ \(tag.name)" : tag.name) }
-                        icon: { Image(nsImage: NSImage.dot(tag.color)) }
-                }
-            }
-            Divider()
-            Button("Quitar etiquetas") { state.clearTags(urls) }
-        }
     }
 }
 

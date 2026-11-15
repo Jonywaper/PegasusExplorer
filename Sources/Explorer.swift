@@ -28,17 +28,25 @@ final class ExplorerTab: ObservableObject, Identifiable {
     let id = UUID()
 
     @Published private(set) var url: URL
-    @Published private(set) var items: [FileItem] = []
+    @Published private(set) var items: [FileItem] = [] { didSet { visibleCache = nil } }
     @Published private(set) var isLoading = false
     @Published private(set) var loadError: String?
     @Published private(set) var backStack: [URL] = []
     @Published private(set) var forwardStack: [URL] = []
     @Published var selection = Set<URL>()
-    @Published var searchText = ""
+    @Published var searchText = "" { didSet { visibleCache = nil } }
+    /// Último elemento clicado (para Mayús+clic y Mayús+flechas).
+    var anchor: URL?
+    /// Elementos por fila en la vista actual (lo calcula la vista; lo usan las flechas).
+    var columnsHint = 1
+    /// Pide a la lista que se desplace hasta este elemento.
+    @Published var scrollTarget: URL?
     @Published var viewMode: ViewMode
     @Published var sortOrder: [KeyPathComparator<FileItem>] = [
         KeyPathComparator(\FileItem.name, comparator: .localizedStandard),
-    ]
+    ] { didSet { visibleCache = nil } }
+    /// Lista ya filtrada y ordenada: se calcula una vez y se reutiliza hasta que algo cambie.
+    private var visibleCache: (showHidden: Bool, list: [FileItem])?
 
     private var watcher: DispatchSourceFileSystemObject?
     private var pendingReload: DispatchWorkItem?
@@ -57,7 +65,7 @@ final class ExplorerTab: ObservableObject, Identifiable {
 
     var title: String {
         if isThisPC { return "Este equipo" }
-        if url.path == "/" { return Volume.mounted().first(where: \.isRoot)?.name ?? "Disco local" }
+        if url.path == "/" { return Preferences.shared.volumes.first(where: \.isRoot)?.name ?? "Disco local" }
         if let known = KnownFolder.matching(url) { return known.title }
         if let cloud = Preferences.shared.cloudDrives.first(where: { $0.url == url.standardizedFileURL }) { return cloud.name }
         return FileManager.default.displayName(atPath: url.path)
@@ -69,6 +77,13 @@ final class ExplorerTab: ObservableObject, Identifiable {
 
     /// Elementos a mostrar: filtrados y ordenados, carpetas primero (como en Windows).
     func visibleItems(showHidden: Bool) -> [FileItem] {
+        if let cache = visibleCache, cache.showHidden == showHidden { return cache.list }
+        let list = computeVisibleItems(showHidden: showHidden)
+        visibleCache = (showHidden, list)
+        return list
+    }
+
+    private func computeVisibleItems(showHidden: Bool) -> [FileItem] {
         var list = items
         if !showHidden { list = list.filter { !$0.isHidden } }
         let query = searchText.trimmingCharacters(in: .whitespaces)
@@ -211,6 +226,8 @@ final class ExplorerTab: ObservableObject, Identifiable {
 final class AppState: ObservableObject {
     /// La ventana que está al frente (recibe los atajos de teclado).
     static weak var active: AppState?
+    /// Todas las ventanas abiertas.
+    private static let all = NSHashTable<AppState>.weakObjects()
 
     let prefs = Preferences.shared
 
@@ -239,6 +256,7 @@ final class AppState: ObservableObject {
         let first = ExplorerTab(url: initialURL ?? FileManager.default.homeDirectoryForCurrentUser)
         tabs = [first]
         selectedTabID = first.id
+        AppState.all.add(self)
     }
 
     var currentTab: ExplorerTab {
@@ -287,6 +305,7 @@ final class AppState: ObservableObject {
     }
 
     func setViewMode(_ mode: ViewMode) {
+        debugLog("vista: \(mode.rawValue)")
         currentTab.viewMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "viewMode")
     }
@@ -375,7 +394,14 @@ final class AppState: ObservableObject {
 
     func eject(_ volume: Volume) {
         let url = volume.url
-        if currentTab.url.path.hasPrefix(url.path) { currentTab.navigate(to: Locations.thisPC) }
+        // Saca de la unidad a todas las pestañas de todas las ventanas: si alguna la tiene abierta,
+        // macOS se niega a expulsarla.
+        let prefix = url.path.hasSuffix("/") ? url.path : url.path + "/"
+        for state in AppState.all.allObjects {
+            for tab in state.tabs where tab.url.isFileURL && (tab.url.path == url.path || tab.url.path.hasPrefix(prefix)) {
+                tab.navigate(to: Locations.thisPC)
+            }
+        }
         DispatchQueue.global().async {
             do {
                 try NSWorkspace.shared.unmountAndEjectDevice(at: url)
@@ -409,6 +435,7 @@ final class AppState: ObservableObject {
 
     var selectedURLs: [URL] {
         let tab = currentTab
+        if tab.selection.isEmpty { return [] }
         return tab.visibleItems(showHidden: prefs.showHidden).map(\.url).filter { tab.selection.contains($0) }
     }
 
@@ -585,6 +612,29 @@ final class AppState: ObservableObject {
 
     func clearTags(_ urls: [URL]) {
         run({ for url in urls { try FileOperations.setTags([], for: url) }; return nil })
+    }
+
+    /// Flechas del teclado: mueve la selección (Mayús la extiende desde el ancla).
+    func moveSelection(dx: Int, dy: Int, extend: Bool) {
+        let tab = currentTab
+        let items = tab.visibleItems(showHidden: prefs.showHidden)
+        guard !items.isEmpty else { return }
+        let step = dx + dy * max(1, tab.columnsHint)
+        let currentIndex = items.lastIndex { tab.selection.contains($0.url) }
+        let target: Int
+        if let currentIndex {
+            target = min(items.count - 1, max(0, currentIndex + step))
+        } else {
+            target = step >= 0 ? 0 : items.count - 1
+        }
+        let url = items[target].url
+        if extend, let anchor = tab.anchor, let a = items.firstIndex(where: { $0.url == anchor }) {
+            tab.selection = Set(items[min(a, target)...max(a, target)].map(\.url))
+        } else {
+            tab.selection = [url]
+            tab.anchor = url
+        }
+        tab.scrollTarget = url
     }
 
     func selectAll() {

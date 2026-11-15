@@ -7,7 +7,7 @@ struct PegasusExplorerApp: App {
 
     var body: some Scene {
         WindowGroup(for: URL.self) { $url in
-            ContentView(initialURL: url ?? AppDelegate.takeLaunchURL())
+            ContentView(initialURL: url)
         }
         .defaultSize(width: 1180, height: 720)
         .commands { ExplorerCommands() }
@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // «Abrir en PegasusExplorer» en el clic derecho del Finder (Servicios / Acciones rápidas).
         NSApp.servicesProvider = FinderService.shared
         NSUpdateDynamicServices()
+        debugLog("inicio: PegasusExplorer \(UpdateChecker.currentVersion), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         runSnapshotIfRequested()
         // Avisa si hay una versión nueva (como mucho una vez al día).
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UpdateChecker.checkAtLaunch() }
@@ -177,6 +178,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // SE_KEYS="125,125,124": pulsa esas teclas (códigos de tecla) para probar el teclado.
+        if let keys = env["SE_KEYS"]?.split(separator: ",").compactMap({ UInt16($0) }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                guard let window = AppState.active?.window else { return }
+                debugLog("prueba de teclas: \(keys)")
+                for code in keys {
+                    if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil,
+                                                    characters: "", charactersIgnoringModifiers: "",
+                                                    isARepeat: false, keyCode: code) {
+                        // Directo al manejador: una app en segundo plano no recibe teclas por la cola.
+                        debugLog("tecla \(code): manejada=\(KeyboardShortcuts.handle(event)) selección=\(AppState.active?.currentTab.selection.count ?? -1)")
+                        if let w = AppState.active?.window {
+                            debugLog("  ventana evento=\(event.window === w) hoja=\(w.sheetParent != nil) modal=\(NSApp.modalWindow != nil) foco=\(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") activa=\(AppState.active != nil) misma=\(AppState.active?.window === event.window) flags=\(event.modifierFlags.rawValue)")
+                        }
+                    } else { debugLog("tecla \(code): no se pudo crear el evento") }
+                }
+            }
+        }
         // SE_HOVER=1: mueve el ratón (virtualmente) por toda la ventana, para probar el redibujado.
         if env["SE_HOVER"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
@@ -199,6 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if env["SE_CLICK"] != nil { print("ubicación:", AppState.active?.currentTab.url.absoluteString ?? "-") }
+            if env["SE_SIZES"] != nil, let window = AppState.active?.window, let view = window.contentView {
+                print("ventana:", window.frame.size, "mínimo ventana:", window.contentMinSize,
+                      "mínimo contenido:", view.fittingSize, "restricciones:", view.constraints.count)
+            }
             let window = env["SE_ABOUT"] != nil
                 ? NSApp.windows.first { $0.title.hasPrefix("Acerca de") }
                 : AppState.active?.window
@@ -238,7 +263,7 @@ enum KeyboardShortcuts {
             return true
         }
 
-        guard let window = NSApp.keyWindow, window.sheetParent == nil, NSApp.modalWindow == nil,
+        guard let window = event.window ?? NSApp.keyWindow ?? AppState.active?.window, window.sheetParent == nil, NSApp.modalWindow == nil,
               let state = AppState.active, state.window === window else { return false }
         // Mientras se escribe en la barra de direcciones o en la búsqueda, el teclado es del campo de texto.
         if window.firstResponder is NSText { return false }
@@ -262,7 +287,8 @@ enum KeyboardShortcuts {
             case Key.l: state.editAddressRequest += 1; return true
             case Key.e, Key.f: state.focusSearchRequest += 1; return true
             case Key.r: tab.reload(); return true
-            case Key.h: state.prefs.showHidden.toggle(); return true
+            // Solo Ctrl+H: Cmd+H es «Ocultar» en macOS y se respeta.
+            case Key.h where flags == [.control]: state.prefs.showHidden.toggle(); return true
             case Key.k: state.showConnectDialog(); return true
             case Key.tab: state.selectTab(offset: 1); return true
             case Key.backspace: state.trash(selection); return true
@@ -313,6 +339,18 @@ enum KeyboardShortcuts {
             return true
         }
 
+        // Flechas: moverse entre archivos (Mayús extiende la selección).
+        if flags.isEmpty || flags == [.shift] {
+            let extend = flags == [.shift]
+            switch code {
+            case Key.up: state.moveSelection(dx: 0, dy: -1, extend: extend); return true
+            case Key.down: state.moveSelection(dx: 0, dy: 1, extend: extend); return true
+            case Key.left where tab.viewMode != .details: state.moveSelection(dx: -1, dy: 0, extend: extend); return true
+            case Key.right where tab.viewMode != .details: state.moveSelection(dx: 1, dy: 0, extend: extend); return true
+            default: break
+            }
+        }
+
         if flags.isEmpty {
             switch code {
             case Key.f2: state.beginRename(); return true
@@ -336,12 +374,18 @@ enum KeyboardShortcuts {
     }
 }
 
-/// Escribe una línea en el archivo de diagnóstico (solo si PEGASUS_DEBUGLOG está definido).
+/// Registro de acciones (carpetas abiertas, vista, versión) para entender un cierre inesperado.
+/// Se guarda solo en esta Mac: ~/Library/Logs/PegasusExplorer.log (o en PEGASUS_DEBUGLOG).
 func debugLog(_ message: String) {
-    guard let path = ProcessInfo.processInfo.environment["PEGASUS_DEBUGLOG"] else { return }
+    let path = ProcessInfo.processInfo.environment["PEGASUS_DEBUGLOG"]
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PegasusExplorer.log").path
     let formatter = DateFormatter()
-    formatter.dateFormat = "HH:mm:ss.SSS"
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
     let line = "\(formatter.string(from: Date())) \(message)\n"
+    // Si crece demasiado, empieza de nuevo (se queda con lo más reciente).
+    if let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int), size > 512_000 {
+        try? FileManager.default.removeItem(atPath: path)
+    }
     if let handle = FileHandle(forWritingAtPath: path) {
         handle.seekToEndOfFile()
         handle.write(Data(line.utf8))

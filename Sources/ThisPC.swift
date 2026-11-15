@@ -171,14 +171,8 @@ struct ThisPCView: View {
             .overlay(RoundedRectangle(cornerRadius: 3)
                 .stroke(selected == id ? Color.accentColor.opacity(0.5) : Color.clear))
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                debugLog("doble clic en mosaico \(id.absoluteString)")
-                open()
-            }
-            .simultaneousGesture(TapGesture().onEnded {
-                debugLog("clic en mosaico \(id.absoluteString)")
-                selected = id
-            })
+            .onTapGesture(count: 2, perform: open)
+            .simultaneousGesture(TapGesture().onEnded { selected = id })
     }
 }
 

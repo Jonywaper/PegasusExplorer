@@ -161,7 +161,7 @@ enum FileOperations {
             ? (first.lastPathComponent as NSString).deletingPathExtension
             : first.lastPathComponent
         let target = uniqueURL(for: "\(base).zip", in: folder, copySuffix: false)
-        try run("/usr/bin/zip", ["-r", "-y", "-q", target.lastPathComponent] + urls.map(\.lastPathComponent),
+        try run("/usr/bin/zip", ["-r", "-y", "-q", "./" + target.lastPathComponent] + urls.map { "./" + $0.lastPathComponent },
                 in: folder)
         return target
     }
@@ -258,6 +258,8 @@ final class FileClipboard {
     private(set) var urls: [URL] = []
     private(set) var isCut = false
     private var changeCount = -1
+    private var external: [URL] = []
+    private var externalCount = -1
 
     func set(_ urls: [URL], cut: Bool) {
         self.urls = urls
@@ -273,8 +275,12 @@ final class FileClipboard {
     func current() -> (urls: [URL], cut: Bool) {
         let pb = NSPasteboard.general
         if pb.changeCount == changeCount { return (urls, isCut) }
-        let external = pb.readObjects(forClasses: [NSURL.self],
+        // Solo se vuelve a leer el portapapeles cuando cambió (se consulta en cada redibujado).
+        if pb.changeCount != externalCount {
+            external = pb.readObjects(forClasses: [NSURL.self],
                                       options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+            externalCount = pb.changeCount
+        }
         return (external, false)
     }
 

@@ -95,6 +95,7 @@ Funcionan con `Ctrl` (como en Windows) y con `Cmd` (como en Mac). `Alt` es la te
 | `Ctrl+Shift+N` | Nueva carpeta |
 | `Ctrl+Shift+C` | Copiar ruta de acceso |
 | `Ctrl+H` | Mostrar u ocultar elementos ocultos |
+| Flechas | Moverse entre archivos (con `Mayús` extiende la selección) |
 | `Ctrl+K` | Conectar a unidad de red |
 | `Ctrl+T` / `Ctrl+W` | Nueva pestaña, cerrar pestaña |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Pestaña siguiente, anterior |
@@ -120,6 +121,10 @@ cp -R build/PegasusExplorer.app /Applications/
 ```
 
 La primera vez que abras Escritorio, Documentos, Descargas o un disco externo, macOS te pedirá permiso. Hasta que lo permitas, esas carpetas se ven vacías.
+
+## Si la app se cierra sola
+
+PegasusExplorer anota en `~/Library/Logs/PegasusExplorer.log` las carpetas que abres y la vista que usas, para poder entender un cierre inesperado. Ese archivo se queda en tu Mac; no se envía a ningún lado. Si reportas un problema, adjúntalo junto con el reporte de macOS.
 
 ## Pendiente
 

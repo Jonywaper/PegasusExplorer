@@ -10,34 +10,39 @@ struct ContentView: View {
     @AppStorage("previewWidth") private var previewWidth: Double = 300
 
     init(initialURL: URL?) {
-        _state = StateObject(wrappedValue: AppState(initialURL: initialURL))
+        // La carpeta pedida por otra app solo se toma al crear la ventana (no en cada redibujado).
+        _state = StateObject(wrappedValue: AppState(initialURL: initialURL ?? AppDelegate.takeLaunchURL()))
     }
 
     var body: some View {
         let tab = state.currentTab
-        VStack(spacing: 0) {
-            TabStrip(state: state)
-            Ribbon(state: state, tab: tab)
-            Divider()
-            NavigationBar(state: state, tab: tab)
-            Divider()
-            // Paneles con divisores propios: el ancho se guarda y no se reinicia al cambiar de carpeta.
-            HStack(spacing: 0) {
-                if prefs.showNavigationPane {
-                    SidebarView(state: state, tab: tab)
-                        .frame(width: sidebarWidth)
-                    PaneDivider(width: $sidebarWidth, range: 140...420, growsToRight: true)
+        // El contenido va dentro de un GeometryReader: así sus cambios de tamaño no se transmiten
+        // a la ventana (en macOS 13 eso podía provocar un bucle de acomodo y cerrar la app).
+        GeometryReader { _ in
+            VStack(spacing: 0) {
+                TabStrip(state: state)
+                Ribbon(state: state, tab: tab)
+                Divider()
+                NavigationBar(state: state, tab: tab)
+                Divider()
+                // Paneles con divisores propios: el ancho se guarda y no se reinicia al cambiar de carpeta.
+                HStack(spacing: 0) {
+                    if prefs.showNavigationPane {
+                        SidebarHost(state: state, tab: tab)
+                            .frame(width: sidebarWidth)
+                        PaneDivider(width: $sidebarWidth, range: 140...420, growsToRight: true)
+                    }
+                    MainContent(state: state, tab: tab)
+                        .frame(minWidth: 300, maxWidth: .infinity)
+                    if prefs.showPreviewPane {
+                        PaneDivider(width: $previewWidth, range: 200...600, growsToRight: false)
+                        PreviewArea(state: state, tab: tab)
+                            .frame(width: previewWidth)
+                    }
                 }
-                MainContent(state: state, tab: tab)
-                    .frame(minWidth: 300, maxWidth: .infinity)
-                if prefs.showPreviewPane {
-                    PaneDivider(width: $previewWidth, range: 200...600, growsToRight: false)
-                    PreviewArea(state: state, tab: tab)
-                        .frame(width: previewWidth)
-                }
+                Divider()
+                StatusBar(state: state, tab: tab)
             }
-            Divider()
-            StatusBar(state: state, tab: tab)
         }
         .frame(minWidth: 820, minHeight: 500)
         .navigationTitle(appName)
@@ -100,11 +105,14 @@ struct MainContent: View {
     @ObservedObject var tab: ExplorerTab
 
     var body: some View {
-        if tab.isThisPC {
-            ThisPCView(state: state)
-        } else {
-            FileListView(state: state, tab: tab)
+        Group {
+            if tab.isThisPC {
+                ThisPCView(state: state)
+            } else {
+                FileListView(state: state, tab: tab)
+            }
         }
+        .onChange(of: tab.url) { _ in focusFileList(in: state.window) }
     }
 }
 
@@ -185,16 +193,14 @@ struct PaneDivider: View {
 func focusFileList(in window: NSWindow?) {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
         guard let window = window ?? NSApp.keyWindow, let root = window.contentView else { return }
-        func findTable(_ view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView, table.tableColumns.count > 1 { return table }
-            for sub in view.subviews { if let found = findTable(sub) { return found } }
+        func findList(_ view: NSView) -> MarqueeTracker.TrackerView? {
+            if let list = view as? MarqueeTracker.TrackerView { return list }
+            for sub in view.subviews { if let found = findList(sub) { return found } }
             return nil
         }
-        if let table = findTable(root) {
-            window.makeFirstResponder(table)
-        } else {
-            window.makeFirstResponder(nil)
-        }
+        // Si se está escribiendo en la barra de direcciones o en la búsqueda, no se le quita el foco.
+        if let editor = window.firstResponder as? NSText, editor.string.isEmpty == false { return }
+        window.makeFirstResponder(findList(root))
     }
 }
 
@@ -379,23 +385,48 @@ struct AddressBar: View {
                         }
                     }
                     .padding(.horizontal, 6)
-                    // Si la ruta no cabe, oculta las primeras carpetas y muestra «, como Windows.
-                    let all = segments
-                    ViewThatFits(in: .horizontal) {
-                        ForEach(0..<all.count, id: \.self) { hidden in
-                            crumbs(Array(all.dropFirst(hidden)), truncated: hidden > 0)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture(perform: beginEditing))
+                    Breadcrumbs(url: tab.url, volumes: prefs.volumes, clouds: prefs.cloudDrives,
+                                navigate: { tab.navigate(to: $0) })
+                        .equatable()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture(perform: beginEditing))
                 }
             }
         }
         .frame(height: 26)
         .onChange(of: state.editAddressRequest) { _ in beginEditing() }
+    }
+
+    private func beginEditing() {
+        text = tab.isThisPC ? "Este equipo" : tab.url.path
+        editing = true
+        DispatchQueue.main.async { focused = true }
+    }
+}
+
+/// Ruta clicable «Este equipo › Disco local (Macintosh HD) › Usuarios › …», como en Windows.
+/// Solo se recalcula cuando cambia la carpeta o los discos (no en cada clic de selección).
+struct Breadcrumbs: View, Equatable {
+    let url: URL
+    let volumes: [Volume]
+    let clouds: [CloudDrive]
+    let navigate: (URL) -> Void
+
+    static func == (a: Breadcrumbs, b: Breadcrumbs) -> Bool {
+        a.url == b.url && a.volumes == b.volumes && a.clouds == b.clouds
+    }
+
+    var body: some View {
+        // Si la ruta no cabe, oculta las primeras carpetas y muestra «.
+        let all = segments
+        ViewThatFits(in: .horizontal) {
+            ForEach(0..<all.count, id: \.self) { hidden in
+                crumbs(Array(all.dropFirst(hidden)), truncated: hidden > 0)
+            }
+        }
     }
 
     private func crumbs(_ list: [(title: String, url: URL)], truncated: Bool) -> some View {
@@ -407,27 +438,20 @@ struct AddressBar: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold)).foregroundColor(.secondary)
                     .padding(.horizontal, 3)
-                Button(segment.title) { tab.navigate(to: segment.url) }
+                Button(segment.title) { navigate(segment.url) }
                     .buttonStyle(BreadcrumbStyle())
             }
         }
         .fixedSize()
     }
 
-    private func beginEditing() {
-        text = tab.isThisPC ? "Este equipo" : tab.url.path
-        editing = true
-        DispatchQueue.main.async { focused = true }
-    }
-
-    /// «Este equipo › Disco local (Macintosh HD) › Users › ...», como en Windows.
     private var segments: [(title: String, url: URL)] {
         var result: [(String, URL)] = []
-        if !tab.isThisPC {
-            var current = tab.url.standardizedFileURL
-            let cloud = CloudDrive.containing(current, in: prefs.cloudDrives)
-            let volume = Volume.containing(current, in: prefs.volumes)
-            while true {
+        if !Locations.isThisPC(url) {
+            var current = url.standardizedFileURL
+            let cloud = CloudDrive.containing(current, in: clouds)
+            let volume = Volume.containing(current, in: volumes)
+            for _ in 0..<64 {
                 let title: String
                 if let cloud, current.path == cloud.url.path {
                     title = cloud.name
@@ -439,8 +463,7 @@ struct AddressBar: View {
                     title = FileManager.default.displayName(atPath: current.path)
                 }
                 result.insert((title, current), at: 0)
-                if current.path == "/" || (volume != nil && current.path == volume!.url.path)
-                    || (cloud != nil && current.path == cloud!.url.path) { break }
+                if current.path == "/" || current.path == volume?.url.path || current.path == cloud?.url.path { break }
                 current = current.deletingLastPathComponent()
             }
         }

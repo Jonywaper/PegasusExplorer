@@ -18,6 +18,7 @@ final class Preferences: ObservableObject {
             if let data = try? JSONEncoder().encode(savedShares) {
                 UserDefaults.standard.set(data, forKey: "savedShares")
             }
+            updateDisconnectedShares()
         }
     }
     @Published private(set) var volumes: [Volume] = []
@@ -60,19 +61,34 @@ final class Preferences: ObservableObject {
 
     func refreshVolumes() {
         volumes = Volume.mounted()
-        cloudDrives = CloudDrive.detect()
+        updateDisconnectedShares()
+        // Primero los nombres (rápido); el espacio de Google Drive se lee aparte, sin frenar la pantalla.
+        let quick = CloudDrive.detect(withQuota: false)
+        let known = Dictionary(cloudDrives.map { ($0.url, $0.quota) }, uniquingKeysWith: { a, _ in a })
+        cloudDrives = quick.map { drive in
+            var copy = drive
+            copy.quota = known[drive.url] ?? nil
+            return copy
+        }
+        DispatchQueue.global(qos: .utility).async {
+            let full = CloudDrive.detect(withQuota: true)
+            DispatchQueue.main.async { if full != self.cloudDrives { self.cloudDrives = full } }
+        }
+    }
+
+    private func updateDisconnectedShares() {
+        let list = savedShares.filter { share in
+            guard let parsed = NetworkShares.parse(share.address) else { return true }
+            return NetworkShares.mountedPath(for: parsed.share) == nil
+        }
+        if list != disconnectedShares { disconnectedShares = list }
     }
 
     var localVolumes: [Volume] { volumes.filter { !$0.isNetwork } }
     var networkVolumes: [Volume] { volumes.filter(\.isNetwork) }
 
-    /// Recursos de red guardados que ahora no están montados.
-    var disconnectedShares: [NetworkShares.Saved] {
-        savedShares.filter { share in
-            guard let parsed = NetworkShares.parse(share.address) else { return true }
-            return NetworkShares.mountedPath(for: parsed.share) == nil
-        }
-    }
+    /// Recursos de red guardados que ahora no están montados (se recalcula al montar o desmontar).
+    @Published private(set) var disconnectedShares: [NetworkShares.Saved] = []
 
     // MARK: Acceso rápido
 

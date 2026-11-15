@@ -74,11 +74,12 @@ struct ThumbnailImage: View {
     let url: URL
     let modified: Date?
     let size: CGFloat
-    @State private var thumbnail: NSImage?
+    @ObservedObject private var cache = ThumbnailCache.shared
 
     var body: some View {
+        let _ = cache.version
         Group {
-            if let thumbnail {
+            if let thumbnail = cache.image(for: url, modified: modified, size: size) {
                 Image(nsImage: thumbnail)
                     .resizable()
                     .interpolation(.high)
@@ -91,37 +92,50 @@ struct ThumbnailImage: View {
             }
         }
         .frame(width: size, height: size)
-        .onAppear(perform: load)
-        .onChange(of: modified) { _ in load() }
-    }
-
-    private func load() {
-        let url = url, modified = modified, size = size
-        Task { @MainActor in
-            thumbnail = await ThumbnailCache.shared.thumbnail(for: url, modified: modified, size: size)
-        }
     }
 }
 
-/// Genera y guarda en memoria las miniaturas con Quick Look (lo mismo que usa Finder).
-final class ThumbnailCache {
+/// Genera las miniaturas con Quick Look (lo mismo que usa Finder) y las guarda en memoria.
+/// Las que terminan se muestran por lotes, como mucho cinco veces por segundo: si cada una
+/// redibujara la ventana por separado, en carpetas grandes macOS 13 podía cerrar la app.
+final class ThumbnailCache: ObservableObject {
     static let shared = ThumbnailCache()
+    @Published private(set) var version = 0
     private let cache = NSCache<NSString, NSImage>()
+    private var inFlight = Set<String>()
+    private var failed = Set<String>()
+    private var publishScheduled = false
 
     init() { cache.countLimit = 600 }
 
-    func thumbnail(for url: URL, modified: Date?, size: CGFloat) async -> NSImage? {
-        let key = "\(url.path)|\(Int(size))|\(modified?.timeIntervalSince1970 ?? 0)" as NSString
-        if let cached = cache.object(forKey: key) { return cached }
+    /// Devuelve la miniatura si ya está; si no, la pide y devuelve nil (se mostrará al terminar).
+    func image(for url: URL, modified: Date?, size: CGFloat) -> NSImage? {
+        let key = "\(url.path)|\(Int(size))|\(modified?.timeIntervalSince1970 ?? 0)"
+        if let cached = cache.object(forKey: key as NSString) { return cached }
+        guard !inFlight.contains(key), !failed.contains(key) else { return nil }
+        inFlight.insert(key)
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size, height: size),
                                                    scale: scale, representationTypes: .thumbnail)
-        guard let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) else {
-            return nil
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
+            let image = representation?.nsImage
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.inFlight.remove(key)
+                if let image { self.cache.setObject(image, forKey: key as NSString) } else { self.failed.insert(key) }
+                self.schedulePublish()
+            }
         }
-        let image = representation.nsImage
-        cache.setObject(image, forKey: key)
-        return image
+        return nil
+    }
+
+    private func schedulePublish() {
+        guard !publishScheduled else { return }
+        publishScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.publishScheduled = false
+            self.version += 1
+        }
     }
 }
 

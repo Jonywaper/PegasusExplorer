@@ -149,7 +149,13 @@ enum KnownFolder: CaseIterable {
         }
     }
 
-    var url: URL {
+    /// Las rutas se calculan una sola vez (se consultan muchas veces al dibujar).
+    private static let urls: [KnownFolder: URL] = Dictionary(
+        uniqueKeysWithValues: allCases.map { ($0, $0.resolveURL().standardizedFileURL) })
+
+    var url: URL { KnownFolder.urls[self] ?? FileManager.default.homeDirectoryForCurrentUser }
+
+    private func resolveURL() -> URL {
         let fm = FileManager.default
         let dir: FileManager.SearchPathDirectory
         switch self {
@@ -164,7 +170,8 @@ enum KnownFolder: CaseIterable {
     }
 
     static func matching(_ url: URL) -> KnownFolder? {
-        allCases.first { $0.url.standardizedFileURL == url.standardizedFileURL }
+        let target = url.standardizedFileURL
+        return allCases.first { $0.url == target }
     }
 }
 
@@ -256,7 +263,8 @@ struct CloudDrive: Identifiable, Hashable {
 
     var id: URL { url }
 
-    static func detect() -> [CloudDrive] {
+    /// `withQuota: false` evita abrir la base de datos de Google Drive (para no esperar en pantalla).
+    static func detect(withQuota: Bool = true) -> [CloudDrive] {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let storage = home.appendingPathComponent("Library/CloudStorage")
@@ -275,7 +283,7 @@ struct CloudDrive: Identifiable, Hashable {
             case "Box": name = account.isEmpty ? "Box" : "Box (\(account))"
             default: name = folder.replacingOccurrences(of: "-", with: " - ")
             }
-            let quota = provider == "GoogleDrive" ? GoogleDriveQuota.quota(forEmail: account) : nil
+            let quota = withQuota && provider == "GoogleDrive" ? GoogleDriveQuota.quota(forEmail: account) : nil
             drives.append(CloudDrive(url: url.standardizedFileURL, name: name, provider: provider, quota: quota))
         }
 
