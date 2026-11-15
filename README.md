@@ -41,8 +41,9 @@ No funciona en macOS 12 Monterey ni anteriores: usa funciones de macOS 13.
 - **Pestañas** y **varias ventanas**.
 - **Barra de direcciones** al estilo «Este equipo › Disco local › …». Haz clic en el espacio vacío (o `Ctrl+L`) para escribir una ruta, `\\servidor\carpeta` o `smb://servidor/carpeta`.
 - **Botones de navegación:** Atrás (carpeta anterior), Adelante, ubicaciones recientes y Subir (carpeta superior).
-- **Carpetas amarillas** como en Windows.
-- **Google Drive, OneDrive, Dropbox e iCloud Drive** en Este equipo y en el panel de navegación. Si tienes varias cuentas, cada una aparece con su correo, como en Windows.
+- **Carpetas amarillas** como en Windows, y **miniaturas** de fotos, PDF, videos y documentos en las vistas de iconos.
+- **Aviso de actualizaciones:** al abrirla revisa una vez al día si hay una versión nueva en GitHub (se puede desactivar en el menú Archivo).
+- **Google Drive, OneDrive, Dropbox e iCloud Drive** en Este equipo y en el panel de navegación. Si tienes varias cuentas, cada una aparece con su correo, como en Windows. Google Drive muestra además su espacio disponible.
 - **Unidades de red:** SMB, AFP, NFS, FTP y WebDAV. macOS pide el usuario y la contraseña y los guarda en el llavero.
 - **Funciones de Finder que Windows no tiene:**
   - Vista rápida (barra espaciadora) y panel de vista previa.

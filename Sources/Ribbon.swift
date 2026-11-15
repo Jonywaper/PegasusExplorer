@@ -251,6 +251,10 @@ struct Ribbon: View {
                 }
             },
             .separator,
+            MenuEntry(title: "Buscar actualizaciones…") { UpdateChecker.check(manual: true) },
+            MenuEntry(title: "Buscar actualizaciones al abrir", checked: UpdateChecker.autoCheckEnabled) {
+                UpdateChecker.autoCheckEnabled.toggle()
+            },
             MenuEntry(title: "Acerca de PegasusExplorer") { AboutWindow.show() },
             MenuEntry(title: "Cerrar") { state.window?.performClose(nil) },
         ]

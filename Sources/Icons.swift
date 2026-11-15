@@ -1,3 +1,4 @@
+import QuickLookThumbnailing
 import SwiftUI
 
 /// Carpeta amarilla al estilo de Windows (en lugar de la azul de macOS).
@@ -50,12 +51,71 @@ struct ItemIcon: View {
     var body: some View {
         if item.isDirectory {
             WindowsFolderIcon(size: size, symbol: KnownFolder.matching(item.url)?.symbol)
+        } else if size >= 32 && !item.isApplication {
+            ThumbnailImage(url: item.url, modified: item.modified, size: size)
         } else {
             Image(nsImage: IconCache.shared.icon(for: item.url))
                 .resizable()
                 .interpolation(.high)
                 .frame(width: size, height: size)
         }
+    }
+}
+
+/// Miniatura del contenido (fotos, PDF, videos, documentos) en las vistas de iconos.
+/// Mientras se genera muestra el ícono normal del archivo.
+struct ThumbnailImage: View {
+    let url: URL
+    let modified: Date?
+    let size: CGFloat
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        Group {
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+            } else {
+                Image(nsImage: IconCache.shared.icon(for: url))
+                    .resizable()
+                    .interpolation(.high)
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear(perform: load)
+        .onChange(of: modified) { _ in load() }
+    }
+
+    private func load() {
+        let url = url, modified = modified, size = size
+        Task { @MainActor in
+            thumbnail = await ThumbnailCache.shared.thumbnail(for: url, modified: modified, size: size)
+        }
+    }
+}
+
+/// Genera y guarda en memoria las miniaturas con Quick Look (lo mismo que usa Finder).
+final class ThumbnailCache {
+    static let shared = ThumbnailCache()
+    private let cache = NSCache<NSString, NSImage>()
+
+    init() { cache.countLimit = 600 }
+
+    func thumbnail(for url: URL, modified: Date?, size: CGFloat) async -> NSImage? {
+        let key = "\(url.path)|\(Int(size))|\(modified?.timeIntervalSince1970 ?? 0)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size, height: size),
+                                                   scale: scale, representationTypes: .thumbnail)
+        guard let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) else {
+            return nil
+        }
+        let image = representation.nsImage
+        cache.setObject(image, forKey: key)
+        return image
     }
 }
 

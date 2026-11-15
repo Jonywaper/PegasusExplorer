@@ -21,6 +21,7 @@ struct ExplorerCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("Acerca de \(appName)") { AboutWindow.show() }
+            Button("Buscar actualizaciones…") { UpdateChecker.check(manual: true) }
         }
         CommandGroup(replacing: .newItem) {
             Button("Ventana nueva") { openWindow(value: state?.currentTab.url ?? FileManager.default.homeDirectoryForCurrentUser) }
@@ -74,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         runSnapshotIfRequested()
+        // Avisa si hay una versión nueva (como mucho una vez al día).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { UpdateChecker.checkAtLaunch() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

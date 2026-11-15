@@ -92,6 +92,11 @@ enum Format {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    /// En unidades de 1024, como muestra Google su almacenamiento («15 GB»).
+    static func bytesBinary(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
+    }
+
     /// «1,25 MB (1.310.720 bytes)», como en Propiedades de Windows.
     static func bytesLong(_ value: Int64) -> String {
         "\(bytes(value)) (\(number(value)) bytes)"
@@ -247,6 +252,7 @@ struct CloudDrive: Identifiable, Hashable {
     let url: URL
     let name: String
     let provider: String
+    var quota: CloudQuota?
 
     var id: URL { url }
 
@@ -269,7 +275,8 @@ struct CloudDrive: Identifiable, Hashable {
             case "Box": name = account.isEmpty ? "Box" : "Box (\(account))"
             default: name = folder.replacingOccurrences(of: "-", with: " - ")
             }
-            drives.append(CloudDrive(url: url.standardizedFileURL, name: name, provider: provider))
+            let quota = provider == "GoogleDrive" ? GoogleDriveQuota.quota(forEmail: account) : nil
+            drives.append(CloudDrive(url: url.standardizedFileURL, name: name, provider: provider, quota: quota))
         }
 
         let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")

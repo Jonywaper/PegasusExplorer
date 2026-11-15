@@ -111,15 +111,7 @@ struct ThisPCView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(volume.name).lineLimit(1)
                 if volume.totalBytes != nil {
-                    // Barra de espacio usado; en rojo cuando pasa del 90 %, como en Windows.
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(Color.primary.opacity(0.12))
-                        Rectangle()
-                            .fill(volume.usedFraction > 0.9 ? Color.red : Color(red: 0.15, green: 0.55, blue: 0.95))
-                            .frame(width: 190 * volume.usedFraction)
-                    }
-                    .frame(width: 190, height: 12)
-                    .overlay(Rectangle().stroke(Color.primary.opacity(0.2)))
+                    UsageBar(fraction: volume.usedFraction)
                     Text("\(Format.bytes(volume.freeBytes ?? 0)) disponibles de \(Format.bytes(volume.totalBytes ?? 0))")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -145,9 +137,16 @@ struct ThisPCView: View {
             CloudIcon(drive: drive, size: 48)
             VStack(alignment: .leading, spacing: 3) {
                 Text(drive.name).lineLimit(1)
-                Text(drive.provider == "iCloud" ? "Almacenamiento en iCloud" : "Unidad en la nube")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let quota = drive.quota {
+                    UsageBar(fraction: quota.usedFraction)
+                    Text("\(Format.bytesBinary(quota.remaining)) disponibles de \(Format.bytesBinary(quota.total))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text(drive.provider == "iCloud" ? "Almacenamiento en iCloud" : "Unidad en la nube")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .contextMenu {
@@ -180,5 +179,21 @@ struct ThisPCView: View {
                 debugLog("clic en mosaico \(id.absoluteString)")
                 selected = id
             })
+    }
+}
+
+/// Barra de espacio usado; en rojo cuando pasa del 90 %, como en Windows.
+struct UsageBar: View {
+    let fraction: Double
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Rectangle().fill(Color.primary.opacity(0.12))
+            Rectangle()
+                .fill(fraction > 0.9 ? Color.red : Color(red: 0.15, green: 0.55, blue: 0.95))
+                .frame(width: 190 * min(1, max(0, fraction)))
+        }
+        .frame(width: 190, height: 12)
+        .overlay(Rectangle().stroke(Color.primary.opacity(0.2)))
     }
 }

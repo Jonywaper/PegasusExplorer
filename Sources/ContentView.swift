@@ -6,6 +6,8 @@ struct ContentView: View {
     @StateObject private var state: AppState
     @ObservedObject private var prefs = Preferences.shared
     @Environment(\.openWindow) private var openWindow
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 175
+    @AppStorage("previewWidth") private var previewWidth: Double = 300
 
     init(initialURL: URL?) {
         _state = StateObject(wrappedValue: AppState(initialURL: initialURL))
@@ -19,16 +21,19 @@ struct ContentView: View {
             Divider()
             NavigationBar(state: state, tab: tab)
             Divider()
-            HSplitView {
+            // Paneles con divisores propios: el ancho se guarda y no se reinicia al cambiar de carpeta.
+            HStack(spacing: 0) {
                 if prefs.showNavigationPane {
                     SidebarView(state: state, tab: tab)
-                        .frame(minWidth: 150, idealWidth: 210, maxWidth: 420)
+                        .frame(width: sidebarWidth)
+                    PaneDivider(width: $sidebarWidth, range: 140...420, growsToRight: true)
                 }
                 MainContent(state: state, tab: tab)
-                    .frame(minWidth: 360)
+                    .frame(minWidth: 300, maxWidth: .infinity)
                 if prefs.showPreviewPane {
+                    PaneDivider(width: $previewWidth, range: 200...600, growsToRight: false)
                     PreviewArea(state: state, tab: tab)
-                        .frame(minWidth: 200, idealWidth: 300, maxWidth: 600)
+                        .frame(width: previewWidth)
                 }
             }
             Divider()
@@ -37,10 +42,8 @@ struct ContentView: View {
         .frame(minWidth: 820, minHeight: 500)
         .navigationTitle(appName)
         .background(WindowAccessor { window in
-            let isFirst = state.window == nil
             state.window = window
             AppState.active = state
-            if isFirst { setSidebarWidth(210, in: window) }
         })
         .focusedSceneObject(state)
         .onAppear {
@@ -131,18 +134,35 @@ struct WindowAccessor: NSViewRepresentable {
     }
 }
 
-/// Ancho inicial del panel de navegación, como en Windows (luego se puede arrastrar).
-func setSidebarWidth(_ width: CGFloat, in window: NSWindow?) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-        guard let root = (window ?? NSApp.keyWindow)?.contentView else { return }
-        func findSplit(_ view: NSView) -> NSSplitView? {
-            if let split = view as? NSSplitView, split.isVertical { return split }
-            for sub in view.subviews { if let found = findSplit(sub) { return found } }
-            return nil
-        }
-        guard Preferences.shared.showNavigationPane, let split = findSplit(root),
-              split.arrangedSubviews.count > 1 else { return }
-        split.setPosition(width, ofDividerAt: 0)
+/// Divisor arrastrable entre paneles (como el de Windows). Guarda el ancho del panel.
+struct PaneDivider: View {
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+    /// true: el panel está a la izquierda del divisor (crece al arrastrar a la derecha).
+    let growsToRight: Bool
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.12))
+            .frame(width: 1)
+            .overlay(
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { value in
+                            let start = startWidth ?? width
+                            startWidth = start
+                            let delta = Double(value.translation.width) * (growsToRight ? 1 : -1)
+                            width = min(range.upperBound, max(range.lowerBound, start + delta))
+                        }
+                        .onEnded { _ in startWidth = nil })
+            )
+            .zIndex(1)
     }
 }
 

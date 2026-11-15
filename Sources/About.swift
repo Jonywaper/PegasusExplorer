@@ -31,6 +31,9 @@ struct AboutView: View {
             VStack(spacing: 4) {
                 Text("PegasusExplorer").font(.title2).fontWeight(.semibold)
                 Text("Versión \(version)").foregroundColor(.secondary)
+                Button("Buscar actualizaciones…") { UpdateChecker.check(manual: true) }
+                    .buttonStyle(.link)
+                    .font(.caption)
             }
             Text("Un explorador de archivos al estilo de Windows para Macs con macOS 13 Ventura. Gratis y de código abierto.")
                 .multilineTextAlignment(.center)
