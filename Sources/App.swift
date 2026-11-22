@@ -187,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
                 // Captura con el botón aún presionado para ver el rectángulo; se suelta después.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + (env["SE_DRAGHOLD"] != nil ? 1.5 : 0.3)) {
                     if let event = NSEvent.mouseEvent(with: .leftMouseUp, location: points.last!, modifierFlags: [],
                                                       timestamp: ProcessInfo.processInfo.systemUptime,
                                                       windowNumber: window.windowNumber, context: nil,

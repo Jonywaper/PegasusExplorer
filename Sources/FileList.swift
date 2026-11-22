@@ -308,27 +308,14 @@ struct GroupHeader: View {
 /// Borde arrastrable entre columnas del encabezado.
 private struct ColumnResizer: View {
     @Binding var width: CGFloat
-    @State private var start: CGFloat?
-    @State private var pushed = false
 
     var body: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.15))
             .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
-            .contentShape(Rectangle())
-            .onHover { inside in
-                if inside && !pushed { NSCursor.resizeLeftRight.push(); pushed = true }
-                if !inside && pushed { NSCursor.pop(); pushed = false }
-            }
-            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { value in
-                    let base = start ?? width
-                    start = base
-                    // La columna está a la derecha del borde: arrastrar a la izquierda la ensancha.
-                    width = min(420, max(60, base - value.translation.width))
-                }
-                .onEnded { _ in start = nil })
+            .frame(width: 7)
+            // La columna está a la derecha del borde: arrastrar a la izquierda la ensancha.
+            .overlay(ResizeHandle(width: Double(width), range: 60...420, direction: -1) { width = CGFloat($0) })
     }
 }
 
@@ -527,6 +514,11 @@ struct MarqueeTracker: NSViewRepresentable {
                 // Un clic dentro del campo de cambiar nombre es para ese campo.
                 if let editor = window.firstResponder as? NSTextView, let field = editor.delegate as? NSView,
                    field.convert(field.bounds, to: nil).contains(event.locationInWindow) {
+                    start = nil
+                    return false
+                }
+                // Sobre un borde para ajustar anchos, el clic es de ese borde.
+                if window.contentView?.hitTest(event.locationInWindow) is ResizeHandle.HandleView {
                     start = nil
                     return false
                 }

@@ -15,10 +15,8 @@ struct ContentView: View {
 
     var body: some View {
         let tab = state.currentTab
-        // El contenido va dentro de un GeometryReader: así sus cambios de tamaño no se transmiten
-        // a la ventana (en macOS 13 eso podía provocar un bucle de acomodo y cerrar la app).
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
+        // (El tamaño de la ventana ya no depende del contenido: ver WindowManager.)
+        VStack(spacing: 0) {
                 TabStrip(state: state)
                 Ribbon(state: state, tab: tab)
                 Divider()
@@ -42,11 +40,9 @@ struct ContentView: View {
                 Divider()
                 StatusBar(state: state, tab: tab)
             }
-            // Tamaño exacto de la ventana: si algo no cabe, se recorta en vez de empujar el diseño.
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-            .clipped()
-        }
-        .frame(minWidth: 820, minHeight: 500)
+        // Ocupa la ventana completa: si algo no cabe, se recorta en vez de empujar el diseño.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         .background(WindowAccessor { window in
             state.window = window
             AppState.active = state
@@ -151,36 +147,14 @@ struct PaneDivider: View {
     let range: ClosedRange<Double>
     /// true: el panel está a la izquierda del divisor (crece al arrastrar a la derecha).
     let growsToRight: Bool
-    @State private var startWidth: Double?
-    @State private var cursorPushed = false
 
     var body: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.12))
             .frame(width: 1)
             .overlay(
-                Color.clear
-                    .frame(width: 9)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        // Empuja y quita el cursor una sola vez (si se desbalancea, macOS se confunde).
-                        if inside && !cursorPushed {
-                            NSCursor.resizeLeftRight.push()
-                            cursorPushed = true
-                        } else if !inside && cursorPushed {
-                            NSCursor.pop()
-                            cursorPushed = false
-                        }
-                    }
-                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .onChanged { value in
-                            let start = startWidth ?? width
-                            startWidth = start
-                            let delta = Double(value.translation.width) * (growsToRight ? 1 : -1)
-                            width = min(range.upperBound, max(range.lowerBound, start + delta))
-                        }
-                        .onEnded { _ in startWidth = nil })
-            )
+                ResizeHandle(width: width, range: range, direction: growsToRight ? 1 : -1) { width = $0 }
+                    .frame(width: 9))
             .zIndex(1)
     }
 }
