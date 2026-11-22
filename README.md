@@ -45,6 +45,12 @@ No funciona en macOS 12 Monterey ni anteriores: usa funciones de macOS 13.
 - **Aviso de actualizaciones:** al abrirla revisa una vez al día si hay una versión nueva en GitHub (se puede desactivar en el menú Archivo).
 - **Google Drive, OneDrive, Dropbox e iCloud Drive** en Este equipo y en el panel de navegación. Si tienes varias cuentas, cada una aparece con su correo, como en Windows. Google Drive muestra además su espacio disponible.
 - **Carpetas sincronizadas con Google Drive** (las de «Mi computadora» en Google Drive para escritorio): muestran el logo de Google Drive y su estado, como OneDrive en Windows: ✓ verde *listo*, ⟳ azul *sincronizando*, ⏸ gris *Google Drive cerrado*. Los archivos de adentro también muestran su estado.
+- **Arrastrar y soltar:** arrastra archivos a otras apps (WhatsApp Web, Gmail, el Finder…) y suelta archivos en una carpeta, en el panel izquierdo, en «Este equipo» o en una pestaña. Dentro del mismo disco se mueven y entre discos se copian, como en Windows; con ⌥ siempre se copian.
+- **Deshacer y rehacer** (`Ctrl+Z` / `Ctrl+Y`): copiar, mover, eliminar, cambiar nombre y crear.
+- **Ventana de progreso** al copiar o mover archivos grandes, con velocidad, tiempo restante y botón Cancelar.
+- **Cambiar nombre en la misma lista** con `F2`, como en Windows (selecciona el nombre sin la extensión).
+- **Buscar en subcarpetas:** el buscador revisa la carpeta y todo lo que contiene, y muestra en qué subcarpeta está cada resultado.
+- **Agrupar por** nombre, tipo, fecha o tamaño, y **columnas ajustables** en Detalles (arrastra el borde del encabezado).
 - **Selección por área:** arrastra con el botón presionado para seleccionar varios elementos con un rectángulo (⌘ o Mayús para agregar a la selección).
 - **Unidades de red:** SMB, AFP, NFS, FTP y WebDAV. macOS pide el usuario y la contraseña y los guarda en el llavero.
 - **Funciones de Finder que Windows no tiene:**
@@ -78,6 +84,7 @@ Funcionan con `Ctrl` (como en Windows) y con `Cmd` (como en Mac). `Alt` es la te
 |---|---|
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copiar, cortar, pegar |
 | `Ctrl+A` | Seleccionar todo |
+| `Ctrl+Z` / `Ctrl+Y` | Deshacer, rehacer |
 | `Espacio` | Vista rápida |
 | `Alt+Enter` / `Cmd+I` | Propiedades |
 | `Alt+P` | Panel de vista previa |
@@ -128,7 +135,7 @@ PegasusExplorer anota en `~/Library/Logs/PegasusExplorer.log` las carpetas que a
 
 ## Pendiente
 
-Doble panel, arrastrar y soltar, deshacer y cambiar nombre directamente en la lista.
+Doble panel.
 
 ## Licencia
 

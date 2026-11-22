@@ -163,6 +163,13 @@ struct ThisPCView: View {
 
     private func tile<Content: View>(id: URL, open: @escaping () -> Void,
                                      @ViewBuilder content: () -> Content) -> some View {
+        baseTile(id: id, open: open, content: content)
+            // Carpetas y discos aceptan archivos soltados encima.
+            .dropTarget(id.isFileURL ? id : nil, state: state)
+    }
+
+    private func baseTile<Content: View>(id: URL, open: @escaping () -> Void,
+                                         @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 10) { content() }
             .padding(6)
             .frame(maxWidth: .infinity, alignment: .leading)

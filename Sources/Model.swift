@@ -88,6 +88,14 @@ enum Format {
         return "\(number(kb)) KB"
     }
 
+    /// «20 s», «3 min», «1 h 5 min».
+    static func duration(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s) s" }
+        if s < 3600 { return "\(s / 60) min" }
+        return "\(s / 3600) h \(s % 3600 / 60) min"
+    }
+
     static func bytes(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }

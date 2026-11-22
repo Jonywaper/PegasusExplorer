@@ -23,6 +23,71 @@ enum ViewMode: String, CaseIterable {
     }
 }
 
+/// «Agrupar por» del Explorador de Windows.
+enum GroupBy: String, CaseIterable {
+    case none, name, kind, date, size
+
+    var title: String {
+        switch self {
+        case .none: return "(Ninguno)"
+        case .name: return "Nombre"
+        case .kind: return "Tipo"
+        case .date: return "Fecha de modificación"
+        case .size: return "Tamaño"
+        }
+    }
+
+    /// Grupo de un elemento: orden del grupo y su título.
+    func group(of item: FileItem) -> (rank: Int, title: String) {
+        switch self {
+        case .none:
+            return (0, "")
+        case .name:
+            let first = item.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).first
+            guard let first else { return (1000, "Otros") }
+            if first.isNumber { return (0, "0–9") }
+            if let scalar = first.uppercased().unicodeScalars.first, ("A"..."Z").contains(Character(scalar)) {
+                return (Int(scalar.value), String(scalar))
+            }
+            return (1000, "Otros")
+        case .kind:
+            return item.isDirectory ? (0, "Carpeta de archivos") : (1, item.kind)
+        case .date:
+            guard let date = item.modified else { return (8, "Sin fecha") }
+            let calendar = Calendar.current
+            let now = Date()
+            if calendar.isDateInToday(date) { return (0, "Hoy") }
+            if calendar.isDateInYesterday(date) { return (1, "Ayer") }
+            if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return (2, "Esta semana") }
+            if let lastWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: now),
+               calendar.isDate(date, equalTo: lastWeek, toGranularity: .weekOfYear) { return (3, "La semana pasada") }
+            if calendar.isDate(date, equalTo: now, toGranularity: .month) { return (4, "Este mes") }
+            if let lastMonth = calendar.date(byAdding: .month, value: -1, to: now),
+               calendar.isDate(date, equalTo: lastMonth, toGranularity: .month) { return (5, "El mes pasado") }
+            if calendar.isDate(date, equalTo: now, toGranularity: .year) { return (6, "Este año") }
+            return (7, "Hace mucho tiempo")
+        case .size:
+            guard let size = item.size else { return (0, "Carpetas") }
+            switch size {
+            case 0: return (1, "Vacío (0 KB)")
+            case ..<16_384: return (2, "Diminuto (0 - 16 KB)")
+            case ..<1_048_576: return (3, "Pequeño (16 KB - 1 MB)")
+            case ..<134_217_728: return (4, "Mediano (1 - 128 MB)")
+            case ..<1_073_741_824: return (5, "Grande (128 MB - 1 GB)")
+            case ..<4_294_967_296: return (6, "Enorme (1 - 4 GB)")
+            default: return (7, "Gigantesco (> 4 GB)")
+            }
+        }
+    }
+}
+
+/// Un grupo de elementos (con «Agrupar por»).
+struct ItemGroup: Identifiable {
+    let title: String
+    let items: [FileItem]
+    var id: String { title }
+}
+
 /// Una pestaña: carpeta actual, historial, contenido y selección.
 final class ExplorerTab: ObservableObject, Identifiable {
     let id = UUID()
@@ -34,7 +99,19 @@ final class ExplorerTab: ObservableObject, Identifiable {
     @Published private(set) var backStack: [URL] = []
     @Published private(set) var forwardStack: [URL] = []
     @Published var selection = Set<URL>()
-    @Published var searchText = "" { didSet { visibleCache = nil } }
+    @Published var searchText = "" {
+        didSet {
+            visibleCache = nil
+            if searchText != oldValue { scheduleSearch() }
+        }
+    }
+    /// Resultados de buscar en esta carpeta y todas sus subcarpetas (nil = no se está buscando).
+    @Published private(set) var searchResults: [FileItem]? { didSet { visibleCache = nil } }
+    @Published private(set) var isSearching = false
+    /// true si se llegó al límite de resultados.
+    @Published private(set) var searchTruncated = false
+    private var searchToken = 0
+    static let searchLimit = 5000
     /// Último elemento clicado (para Mayús+clic y Mayús+flechas).
     var anchor: URL?
     /// Elementos por fila en la vista actual (lo calcula la vista; lo usan las flechas).
@@ -42,6 +119,12 @@ final class ExplorerTab: ObservableObject, Identifiable {
     /// Pide a la lista que se desplace hasta este elemento.
     @Published var scrollTarget: URL?
     @Published var viewMode: ViewMode
+    @Published var groupBy: GroupBy = GroupBy(rawValue: UserDefaults.standard.string(forKey: "groupBy") ?? "") ?? .none {
+        didSet {
+            visibleCache = nil
+            UserDefaults.standard.set(groupBy.rawValue, forKey: "groupBy")
+        }
+    }
     @Published var sortOrder: [KeyPathComparator<FileItem>] = [
         KeyPathComparator(\FileItem.name, comparator: .localizedStandard),
     ] { didSet { visibleCache = nil } }
@@ -84,13 +167,128 @@ final class ExplorerTab: ObservableObject, Identifiable {
     }
 
     private func computeVisibleItems(showHidden: Bool) -> [FileItem] {
-        var list = items
+        var list = searchResults ?? items
         if !showHidden { list = list.filter { !$0.isHidden } }
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        if !query.isEmpty { list = list.filter { $0.name.localizedCaseInsensitiveContains(query) } }
         let folders = list.filter(\.isDirectory).sorted(using: sortOrder)
         let files = list.filter { !$0.isDirectory }.sorted(using: sortOrder)
-        return folders + files
+        let ordered = folders + files
+        guard groupBy != .none else { return ordered }
+        // Por grupo, conservando el orden elegido dentro de cada uno.
+        let grouping = groupBy
+        return ordered.enumerated()
+            .map { (index: $0.offset, item: $0.element, group: grouping.group(of: $0.element)) }
+            .sorted { a, b in
+                if a.group.rank != b.group.rank { return a.group.rank < b.group.rank }
+                if a.group.title != b.group.title {
+                    return a.group.title.localizedStandardCompare(b.group.title) == .orderedAscending
+                }
+                return a.index < b.index
+            }
+            .map(\.item)
+    }
+
+    /// Los elementos visibles partidos en grupos consecutivos.
+    func groups(_ list: [FileItem]) -> [ItemGroup] {
+        var result: [ItemGroup] = []
+        var title: String?
+        var current: [FileItem] = []
+        for item in list {
+            let next = groupBy.group(of: item).title
+            if next != title, let title {
+                result.append(ItemGroup(title: title, items: current))
+                current = []
+            }
+            title = next
+            current.append(item)
+        }
+        if let title { result.append(ItemGroup(title: title, items: current)) }
+        return result
+    }
+
+    // MARK: Búsqueda en subcarpetas
+
+    /// Busca por nombre en esta carpeta y en todas sus subcarpetas, como el buscador del Explorador.
+    /// Empieza un instante después de dejar de escribir; los resultados aparecen por tandas.
+    private func scheduleSearch() {
+        searchToken += 1
+        let token = searchToken
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty, !isThisPC else {
+            searchResults = nil
+            isSearching = false
+            searchTruncated = false
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.searchToken == token else { return }
+            self.startSearch(query, token: token)
+        }
+    }
+
+    private func startSearch(_ query: String, token: Int) {
+        let root = url
+        let includeHidden = Preferences.shared.showHidden
+        let matches: (String) -> Bool = { name in
+            name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+        // Lo de la carpeta actual aparece al instante; lo de las subcarpetas, al ir encontrándolo.
+        searchResults = items.filter { matches($0.name) }
+        isSearching = true
+        searchTruncated = false
+        debugLog("buscar «\(query)» en \(root.path)")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants]
+            if !includeHidden { options.insert(.skipsHiddenFiles) }
+            let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: FileItem.resourceKeys,
+                                                        options: options) { _, _ in true }
+            var found: [FileItem] = []
+            var pending: [FileItem] = []
+            var lastPublish = Date()
+            var scanned = 0
+            var truncated = false
+            let alive: () -> Bool = { [weak self] in
+                var current = false
+                DispatchQueue.main.sync { current = self?.searchToken == token }
+                return current
+            }
+            while let next = walker?.nextObject() as? URL {
+                scanned += 1
+                if scanned % 2000 == 0, !alive() { return }
+                // Lo de la carpeta actual ya está; solo se agregan subcarpetas.
+                guard next.deletingLastPathComponent().standardizedFileURL != root.standardizedFileURL,
+                      matches(next.lastPathComponent), let item = FileItem(url: next) else { continue }
+                found.append(item)
+                pending.append(item)
+                if found.count >= Self.searchLimit { truncated = true; break }
+                if Date().timeIntervalSince(lastPublish) > 0.3 {
+                    let batch = pending
+                    pending = []
+                    lastPublish = Date()
+                    DispatchQueue.main.async {
+                        guard let self, self.searchToken == token else { return }
+                        self.searchResults = (self.searchResults ?? []) + batch
+                    }
+                }
+            }
+            let batch = pending
+            DispatchQueue.main.async {
+                guard let self, self.searchToken == token else { return }
+                self.searchResults = (self.searchResults ?? []) + batch
+                self.isSearching = false
+                self.searchTruncated = truncated
+                debugLog("búsqueda terminada: \(self.searchResults?.count ?? 0) resultados, \(scanned) revisados")
+            }
+        }
+    }
+
+    /// Carpeta donde está un resultado, relativa a la carpeta donde se busca («Proyectos/2024»).
+    func searchLocation(of item: FileItem) -> String? {
+        guard searchResults != nil else { return nil }
+        let parent = item.url.deletingLastPathComponent().standardizedFileURL.path
+        let root = url.standardizedFileURL.path
+        if parent == root { return nil }
+        return parent.hasPrefix(root + "/") ? String(parent.dropFirst(root.count + 1)) : parent
     }
 
     // MARK: Navegación
@@ -236,8 +434,8 @@ final class AppState: ObservableObject {
 
     // Diálogos
     @Published var alertMessage: String?
-    @Published var renameTarget: URL?
-    @Published var renameText = ""
+    /// Cambio de nombre en la misma lista (F2), como en Windows.
+    let rename = RenameController()
     @Published var showConnectSheet = false
     @Published var connectAddress = ""
     @Published var connectSave = true
@@ -415,13 +613,15 @@ final class AppState: ObservableObject {
 
     // MARK: Operaciones con archivos
 
-    private func run(_ work: @escaping () throws -> [URL]?, then: (([URL]) -> Void)? = nil) {
+    private func run(_ work: @escaping () throws -> [URL]?, undo: (([URL]) -> UndoRecord?)? = nil,
+                     then: (([URL]) -> Void)? = nil) {
         let tab = currentTab
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let result = try work()
                 DispatchQueue.main.async {
                     tab.reload()
+                    if let result, !result.isEmpty, let record = undo?(result) { UndoHistory.shared.record(record) }
                     if let result { then?(result) }
                 }
             } catch {
@@ -459,13 +659,38 @@ final class AppState: ObservableObject {
         guard canWriteHere else { return }
         let (urls, cut) = FileClipboard.shared.current()
         guard !urls.isEmpty else { return }
-        let folder = currentTab.url
-        run({
-            cut ? try FileOperations.move(urls, to: folder) : try FileOperations.copy(urls, to: folder)
-        }, then: { [weak self] created in
+        transfer(cut ? .move : .copy, urls, to: currentTab.url) {
             if cut { FileClipboard.shared.clearAfterCut() }
-            self?.currentTab.selection = Set(created)
-        })
+        }
+    }
+
+    /// Copia o mueve con ventana de progreso; queda registrado para deshacer.
+    func transfer(_ kind: TransferJob.Kind, _ urls: [URL], to folder: URL, then: (() -> Void)? = nil) {
+        guard !urls.isEmpty, folder.isFileURL else { return }
+        let tab = currentTab
+        TransferCenter.shared.start(kind, urls, to: folder) { [weak self] pairs, error in
+            tab.reload()
+            if !pairs.isEmpty {
+                UndoHistory.shared.record(kind == .copy ? .copied(pairs) : .moved(pairs))
+                if tab.url.standardizedFileURL == folder.standardizedFileURL {
+                    tab.selection = Set(pairs.map { $0.to.standardizedFileURL })
+                }
+            }
+            if let error { self?.alertMessage = error.localizedDescription }
+            then?()
+        }
+    }
+
+    /// Archivos soltados en una carpeta: dentro del mismo disco se mueven y entre discos se copian,
+    /// como en Windows. Con Opción (⌥) presionada siempre se copian.
+    func drop(_ urls: [URL], into folder: URL, forceCopy: Bool) {
+        let target = folder.standardizedFileURL
+        let list = urls.map(\.standardizedFileURL).filter { url in
+            url != target && url.deletingLastPathComponent() != target && !TransferEngine.isInside(target, url)
+        }
+        guard !list.isEmpty, AppState.isFolder(target) else { return }
+        let sameVolume = list.allSatisfy { TransferEngine.volumeID($0) == TransferEngine.volumeID(target) }
+        transfer(forceCopy || !sameVolume ? .copy : .move, list, to: target)
     }
 
     /// «Pegar acceso directo»: crea alias de lo copiado en la carpeta actual.
@@ -474,14 +699,14 @@ final class AppState: ObservableObject {
         let urls = FileClipboard.shared.current().urls
         guard !urls.isEmpty else { return }
         let folder = currentTab.url
-        run({ try FileOperations.makeShortcuts(urls, in: folder) }, then: { [weak self] created in
+        run({ try FileOperations.makeShortcuts(urls, in: folder) }, undo: { .created($0) }, then: { [weak self] created in
             self?.currentTab.selection = Set(created)
         })
     }
 
     func createShortcut(_ urls: [URL]) {
         guard let folder = urls.first?.deletingLastPathComponent() else { return }
-        run({ try FileOperations.makeShortcuts(urls, in: folder) }, then: { [weak self] created in
+        run({ try FileOperations.makeShortcuts(urls, in: folder) }, undo: { .created($0) }, then: { [weak self] created in
             self?.currentTab.selection = Set(created)
         })
     }
@@ -500,7 +725,15 @@ final class AppState: ObservableObject {
 
     func trash(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        run({ try FileOperations.trash(urls); return nil })
+        var pairs: [(original: URL, inTrash: URL)] = []
+        run({
+            for url in urls {
+                var resulting: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+                if let inTrash = resulting as URL? { pairs.append((url, inTrash)) }
+            }
+            return pairs.map(\.original)
+        }, undo: { _ in .trashed(pairs) })
     }
 
     func askDeletePermanently(_ urls: [URL]) {
@@ -513,17 +746,35 @@ final class AppState: ObservableObject {
 
     func duplicate(_ urls: [URL]) {
         guard let folder = urls.first?.deletingLastPathComponent() else { return }
-        run({ try FileOperations.copy(urls, to: folder) }, then: { [weak self] created in
-            self?.currentTab.selection = Set(created)
-        })
+        transfer(.copy, urls, to: folder)
     }
 
     func copy(_ urls: [URL], to folder: URL) {
-        run({ try FileOperations.copy(urls, to: folder) })
+        transfer(.copy, urls, to: folder)
     }
 
     func move(_ urls: [URL], to folder: URL) {
-        run({ try FileOperations.move(urls, to: folder) })
+        transfer(.move, urls, to: folder)
+    }
+
+    // MARK: Deshacer
+
+    func undo() {
+        guard UndoHistory.shared.canUndo else { NSSound.beep(); return }
+        UndoHistory.shared.undo { [weak self] urls, error in self?.afterUndo(urls, error) }
+    }
+
+    func redo() {
+        guard UndoHistory.shared.canRedo else { NSSound.beep(); return }
+        UndoHistory.shared.redo { [weak self] urls, error in self?.afterUndo(urls, error) }
+    }
+
+    private func afterUndo(_ urls: [URL], _ error: Error?) {
+        let tab = currentTab
+        tab.reload()
+        let here = Set(urls.map(\.standardizedFileURL)).filter { $0.deletingLastPathComponent() == tab.url.standardizedFileURL }
+        if !here.isEmpty { tab.selection = here }
+        if let error { alertMessage = error.localizedDescription }
     }
 
     func chooseFolder(prompt: String) -> URL? {
@@ -539,7 +790,7 @@ final class AppState: ObservableObject {
     func newFolder() {
         guard canWriteHere else { return }
         let folder = currentTab.url
-        run({ [try FileOperations.newFolder(in: folder)] }, then: { [weak self] created in
+        run({ [try FileOperations.newFolder(in: folder)] }, undo: { .created($0) }, then: { [weak self] created in
             self?.currentTab.selection = Set(created)
             if let url = created.first { self?.beginRename(url) }
         })
@@ -558,7 +809,7 @@ final class AppState: ObservableObject {
         guard canWriteHere else { return }
         let folder = currentTab.url
         run({ [rich ? try FileOperations.newRichTextDocument(in: folder) : try FileOperations.newTextDocument(in: folder)] },
-            then: { [weak self] created in
+            undo: { .created($0) }, then: { [weak self] created in
                 self?.currentTab.selection = Set(created)
                 if let url = created.first { self?.beginRename(url) }
             })
@@ -566,28 +817,37 @@ final class AppState: ObservableObject {
 
     func compress(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        run({ [try FileOperations.compress(urls)] }, then: { [weak self] created in
+        run({ [try FileOperations.compress(urls)] }, undo: { .created($0) }, then: { [weak self] created in
             self?.currentTab.selection = Set(created)
         })
     }
 
     func extract(_ zip: URL) {
-        run({ [try FileOperations.extract(zip)] }, then: { [weak self] created in
+        run({ [try FileOperations.extract(zip)] }, undo: { .created($0) }, then: { [weak self] created in
             self?.currentTab.selection = Set(created)
         })
     }
 
     func beginRename(_ url: URL? = nil) {
-        guard let target = url ?? selectedURLs.first else { return }
-        renameText = target.lastPathComponent
-        renameTarget = target
+        guard let target = url ?? selectedURLs.first, !currentTab.isThisPC else { return }
+        rename.text = target.lastPathComponent
+        rename.target = target.standardizedFileURL
+        currentTab.scrollTarget = target.standardizedFileURL
+    }
+
+    func cancelRename() {
+        rename.target = nil
+        focusFileList(in: window)
     }
 
     func commitRename() {
-        guard let target = renameTarget else { return }
-        let newName = renameText
-        renameTarget = nil
-        run({ [try FileOperations.rename(target, to: newName)] }, then: { [weak self] renamed in
+        guard let target = rename.target else { return }
+        let newName = rename.text
+        rename.target = nil
+        focusFileList(in: window)
+        guard newName != target.lastPathComponent else { return }
+        run({ [try FileOperations.rename(target, to: newName)] },
+            undo: { renamed in renamed.first.flatMap { $0 == target ? nil : .renamed(from: target, to: $0) } }, then: { [weak self] renamed in
             self?.currentTab.selection = Set(renamed)
         })
     }

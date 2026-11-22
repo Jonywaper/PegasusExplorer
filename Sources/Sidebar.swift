@@ -90,6 +90,7 @@ struct SidebarView: View, Equatable {
                             Spacer(minLength: 0)
                             Image(systemName: "pin.fill").font(.system(size: 9)).foregroundColor(.secondary)
                         }
+                        .dropTarget(url, state: state)
                         .contextMenu {
                             Button("Abrir en una pestaña nueva") { state.newTab(at: url) }
                             Button("Abrir en ventana nueva") { state.newWindow(at: url) }
@@ -279,6 +280,7 @@ struct FolderTreeRow: View {
                 .cornerRadius(4)
                 .contentShape(Rectangle())
                 .onTapGesture { state.currentTab.navigate(to: node.url) }
+                .dropTarget(node.url, state: state)
                 .onHover { hovering = $0 }
                 .contextMenu { menu }
             }

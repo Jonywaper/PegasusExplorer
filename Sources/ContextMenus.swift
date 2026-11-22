@@ -89,7 +89,15 @@ extension AppState {
                 MenuEntry(title: mode.title, checked: tab.viewMode == mode) { [weak self] in self?.setViewMode(mode) }
             }),
             MenuEntry(title: "Ordenar por", children: sortEntries),
+            MenuEntry(title: "Agrupar por", children: GroupBy.allCases.map { group in
+                MenuEntry(title: group.title, checked: tab.groupBy == group) { tab.groupBy = group }
+            }),
             MenuEntry(title: "Actualizar") { tab.reload() },
+            .separator,
+            MenuEntry(title: UndoHistory.shared.undoStack.last.map { "\($0.undoTitle)   Ctrl+Z" } ?? "Deshacer",
+                      enabled: UndoHistory.shared.canUndo) { [weak self] in self?.undo() },
+            MenuEntry(title: UndoHistory.shared.redoStack.last.map { "\($0.redoTitle)   Ctrl+Y" } ?? "Rehacer",
+                      enabled: UndoHistory.shared.canRedo) { [weak self] in self?.redo() },
             .separator,
             MenuEntry(title: "Pegar", enabled: canPaste) { [weak self] in self?.paste() },
             MenuEntry(title: "Pegar acceso directo", enabled: canPaste) { [weak self] in self?.pasteShortcut() },

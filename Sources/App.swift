@@ -22,6 +22,10 @@ struct ExplorerCommands: Commands {
             Button("Buscar actualizaciones…") { UpdateChecker.check(manual: true) }
         }
         CommandGroup(replacing: .appSettings) {}
+        CommandGroup(replacing: .undoRedo) {
+            Button("Deshacer") { state?.undo() }
+            Button("Rehacer") { state?.redo() }
+        }
         CommandGroup(replacing: .newItem) {
             Button("Ventana nueva") { WindowManager.open(state?.currentTab.url) }
                 .keyboardShortcut("n")
@@ -213,6 +217,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // SE_DROP="origen1|origen2=>carpeta[=>deshacer]": suelta archivos como si se arrastraran (para probar).
+        if let drop = env["SE_DROP"] {
+            let parts = drop.components(separatedBy: "=>")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                guard parts.count >= 2, let state = AppState.active else { return }
+                let sources = parts[0].split(separator: "|").map { URL(fileURLWithPath: String($0)) }
+                state.drop(sources, into: URL(fileURLWithPath: parts[1]), forceCopy: env["SE_DROPCOPY"] != nil)
+                if parts.count > 2 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { state.undo() }
+                }
+            }
+        }
+        // SE_RENAME="nombre": escribe ese nombre en el campo de F2 y lo confirma (para probar).
+        if let newName = env["SE_RENAME"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+                guard let state = AppState.active, state.rename.target != nil else { debugLog("renombrar: sin campo"); return }
+                state.rename.text = newName
+                state.commitRename()
+            }
+        }
+        // SE_SEARCH="texto": escribe en el buscador (para probar).
+        if let text = env["SE_SEARCH"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { AppState.active?.currentTab.searchText = text }
+        }
         // SE_WINSIZE="ancho,alto": tamaño de la ventana para la prueba.
         if let size = env["SE_WINSIZE"]?.split(separator: ",").compactMap({ Double($0) }), size.count == 2 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -273,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum KeyboardShortcuts {
     private enum Key {
         static let a: UInt16 = 0, c: UInt16 = 8, d: UInt16 = 2, e: UInt16 = 14, f: UInt16 = 3, h: UInt16 = 4
-        static let i: UInt16 = 34, k: UInt16 = 40, l: UInt16 = 37, n: UInt16 = 45, p: UInt16 = 35, r: UInt16 = 15
+        static let y: UInt16 = 16, z: UInt16 = 6, i: UInt16 = 34, k: UInt16 = 40, l: UInt16 = 37, n: UInt16 = 45, p: UInt16 = 35, r: UInt16 = 15
         static let t: UInt16 = 17, v: UInt16 = 9, w: UInt16 = 13, x: UInt16 = 7, period: UInt16 = 47
         static let space: UInt16 = 49, tab: UInt16 = 48, returnKey: UInt16 = 36, enter: UInt16 = 76
         static let backspace: UInt16 = 51, forwardDelete: UInt16 = 117, escape: UInt16 = 53
@@ -306,6 +334,8 @@ enum KeyboardShortcuts {
 
         if ctrlOrCmd {
             switch code {
+            case Key.z: state.undo(); return true
+            case Key.y where flags == [.control]: state.redo(); return true
             case Key.c: state.copy(selection); return true
             case Key.x: state.cut(selection); return true
             case Key.v: state.paste(); return true
@@ -331,6 +361,7 @@ enum KeyboardShortcuts {
         if ctrlOrCmdShift {
             switch code {
             case Key.n: state.newFolder(); return true
+            case Key.z: state.redo(); return true
             case Key.c: state.copyPath(selection); return true
             case Key.tab: state.selectTab(offset: -1); return true
             case Key.period: state.prefs.showHidden.toggle(); return true

@@ -59,10 +59,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if let window = note.object as? NSWindow, window == state.window { AppState.active = state }
         }
-        .sheet(isPresented: Binding(get: { state.renameTarget != nil },
-                                    set: { if !$0 { state.renameTarget = nil } })) {
-            RenameSheet(state: state)
-        }
         .sheet(isPresented: $state.showConnectSheet) {
             ConnectSheet(state: state)
         }
@@ -213,7 +209,7 @@ struct TabStrip: View {
         HStack(spacing: 2) {
             // Las pestañas se encogen cuando hay muchas, como en Windows y Chrome.
             ForEach(state.tabs) { tab in
-                TabButton(tab: tab, isSelected: tab.id == state.selectedTabID,
+                TabButton(tab: tab, state: state, isSelected: tab.id == state.selectedTabID,
                           select: { state.selectedTabID = tab.id },
                           close: { state.closeTab(tab.id) },
                           newWindow: { state.newWindow(at: tab.url); state.closeTab(tab.id) })
@@ -236,6 +232,7 @@ struct TabStrip: View {
 
 struct TabButton: View {
     @ObservedObject var tab: ExplorerTab
+    let state: AppState
     let isSelected: Bool
     let select: () -> Void
     let close: () -> Void
@@ -268,6 +265,8 @@ struct TabButton: View {
         .onTapGesture(perform: select)
         .onHover { hovering = $0 }
         .onMiddleClick(perform: close)
+        // Soltar archivos sobre una pestaña los lleva a su carpeta.
+        .dropTarget(tab.isThisPC ? nil : tab.url, state: state, cornerRadius: 6)
         .contextMenu {
             Button("Cerrar pestaña", action: close)
             Button("Mover a una ventana nueva", action: newWindow)
@@ -509,16 +508,21 @@ struct StatusBar: View {
             if tab.isThisPC {
                 Text("\(KnownFolder.allCases.count + 1 + prefs.volumes.count + prefs.cloudDrives.count) elementos")
             } else {
-                Text(items.count == 1 ? "1 elemento" : "\(items.count) elementos")
+                if tab.searchResults != nil {
+                    Text(items.count == 1 ? "1 resultado" : "\(Format.number(Int64(items.count))) resultados")
+                    if tab.searchTruncated { Text("(se muestran los primeros \(Format.number(Int64(ExplorerTab.searchLimit))))") }
+                } else {
+                    Text(items.count == 1 ? "1 elemento" : "\(Format.number(Int64(items.count))) elementos")
+                }
             }
             if !selected.isEmpty {
                 Divider().frame(height: 12)
                 Text(selected.count == 1 ? "1 elemento seleccionado" : "\(selected.count) elementos seleccionados")
                 if selectedBytes > 0 { Text(Format.bytes(selectedBytes)) }
             }
-            if tab.isLoading || state.isConnecting {
+            if tab.isLoading || state.isConnecting || tab.isSearching {
                 ProgressView().controlSize(.small)
-                Text(state.isConnecting ? "Conectando…" : "Cargando…")
+                Text(state.isConnecting ? "Conectando…" : (tab.isSearching ? "Buscando en subcarpetas…" : "Cargando…"))
             }
             Spacer()
             if !tab.isThisPC {
@@ -542,41 +546,6 @@ struct StatusBar: View {
 }
 
 // MARK: - Diálogos
-
-struct RenameSheet: View {
-    @ObservedObject var state: AppState
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Cambiar nombre").font(.headline)
-            TextField("Nombre", text: $state.renameText)
-                .focused($focused)
-                .frame(width: 360)
-                .onSubmit { state.commitRename() }
-            HStack {
-                Spacer()
-                Button("Cancelar") { state.renameTarget = nil }
-                    .keyboardShortcut(.cancelAction)
-                Button("Cambiar nombre") { state.commitRename() }
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .onAppear {
-            focused = true
-            // Selecciona el nombre sin la extensión, como en Windows.
-            DispatchQueue.main.async {
-                guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
-                let name = state.renameText as NSString
-                let ext = name.pathExtension
-                let isFolder = state.renameTarget.map(AppState.isFolder) ?? false
-                let length = ext.isEmpty || isFolder || state.renameText.hasPrefix(".") ? name.length : name.length - ext.count - 1
-                editor.setSelectedRange(NSRange(location: 0, length: max(0, length)))
-            }
-        }
-    }
-}
 
 struct ConnectSheet: View {
     @ObservedObject var state: AppState

@@ -219,6 +219,11 @@ struct Ribbon: View {
                 BigButton(title: "Ordenar\npor ▾", symbol: "arrow.up.arrow.down", color: .blue, enabled: !tab.isThisPC) {
                     PopupMenu.show(sortEntries)
                 }
+                BigButton(title: "Agrupar\npor ▾", symbol: "square.stack.3d.up", color: .blue, enabled: !tab.isThisPC) {
+                    PopupMenu.show(GroupBy.allCases.map { group in
+                        MenuEntry(title: group.title, checked: tab.groupBy == group) { tab.groupBy = group }
+                    })
+                }
             }
             RibbonGroup("Mostrar u ocultar") {
                 VStack(alignment: .leading, spacing: 4) {
